@@ -1,0 +1,21 @@
+Sentinel — Master Orchestrator & Command Center
+================================================
+
+Original design and architecture by Kaushikkumaran
+GitHub: https://github.com/CodeBuildder/sentinel
+First committed: June 2026
+
+This project represents original work including:
+- A LangGraph supervisor design that aggregates and normalizes events from independent
+  security (Argus) and resilience (Phoenix) agents through a shared schema
+- A fleet risk-scoring engine combining MTTR, recovery rate, cascade-prevention rate,
+  and live threat signals into a continuous per-datacenter/per-component score
+- A daily intelligence report generator narrating causal incident chains in natural
+  language via Claude
+- A 23-datacenter geospatial command-center dashboard design with live dependency-graph
+  and blast-radius visualization
+
+All architectural decisions are documented in [`sentinel-platform/docs`](https://github.com/CodeBuildder/sentinel-platform/tree/main/docs).
+Commit history on GitHub serves as timestamped proof of authorship.
+
+This notice must be retained in all copies and derivative works.

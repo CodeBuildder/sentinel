@@ -1,0 +1,30 @@
+# Secrets — never commit these
+*.env
+.env*
+secrets/
+kubeconfig
+*.kubeconfig
+**/secret.yaml
+**/secrets.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+.pytest_cache/
+
+# Node
+node_modules/
+.next/
+build/
+
+# Helm
+charts/*.tgz
+**/charts/*.tgz
+
+# OS
+.DS_Store
+*.swp
