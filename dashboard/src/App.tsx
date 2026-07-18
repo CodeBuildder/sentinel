@@ -9,6 +9,7 @@ type Timeline = {
   id?: string; source: string; severity: string; timestamp: string; entity_id?: string
   entity_name?: string; type: string; summary: string; replayed: boolean
   correlation_id?: string; stage?: string; action?: string; outcome?: string
+  provenance?: string
   payload?: Record<string, unknown>
 }
 type Component = {
@@ -21,14 +22,19 @@ type SourceHealth = {
   connected: boolean; findings: number; latest_at?: string; live: number; replayed: number
   critical: number; high: number
 }
+type Incident = {
+  incident_id: string; correlation_id?: string; title?: string; status?: string; severity?: string
+  started_at?: string; updated_at?: string; sources?: string[]; evidence_count?: number
+  provenance?: string[]; timeline?: Timeline[]
+}
 type Overview = {
   generated_at: string; status: string; degraded_sources?: string[]; fleet_risk: number
   risk_level: string; counts: Record<string, number>; sources: Record<string, SourceHealth>
   namespaces?: Record<string, number>; components: Component[]; timeline: Timeline[]
-  topology: { nodes: any[]; edges: any[] }; trust: any[]; incidents?: any[]
+  topology: { nodes: any[]; edges: any[] }; trust: any[]; incidents?: Incident[]
 }
 type MetricKind = 'signals' | 'urgent' | 'affected' | 'namespaces' | 'incidents'
-type Detail = { kind: 'signal'; signal: Timeline } | { kind: 'component'; component: Component } | { kind: 'metric'; metric: MetricKind } | { kind: 'source'; source: 'argus' | 'phoenix' }
+type Detail = { kind: 'signal'; signal: Timeline } | { kind: 'component'; component: Component } | { kind: 'metric'; metric: MetricKind } | { kind: 'source'; source: 'argus' | 'phoenix' } | { kind: 'incident'; incident: Incident }
 
 const API = '/api'
 const ARGUS_URL = (import.meta as any).env.VITE_ARGUS_URL as string | undefined
@@ -179,7 +185,7 @@ function TrustLadder({ records }: { records: any[] }) {
   </div>
 }
 
-function MetricDetail({ metric, data, onSignal, onComponent }: { metric: MetricKind; data: Overview | null; onSignal: (signal: Timeline) => void; onComponent: (component: Component) => void }) {
+function MetricDetail({ metric, data, onSignal, onComponent, onIncident }: { metric: MetricKind; data: Overview | null; onSignal: (signal: Timeline) => void; onComponent: (component: Component) => void; onIncident: (incident: Incident) => void }) {
   const definitions: Record<MetricKind, { title: string; description: string }> = {
     signals: { title: 'Live signals', description: 'Every finding in the current Sentinel Operations Graph evidence window, separated into observed and replayed records.' },
     urgent: { title: 'Urgent evidence', description: 'Critical and high-severity findings that should be reviewed before lower-priority telemetry.' },
@@ -191,16 +197,20 @@ function MetricDetail({ metric, data, onSignal, onComponent }: { metric: MetricK
   if (metric === 'signals' || metric === 'urgent') { const rows = metric === 'urgent' ? (data?.timeline || []).filter(item => ['critical', 'high'].includes(item.severity)) : data?.timeline || []; return <><div className="metric-intro"><h2>{definition.title}</h2><p>{definition.description}</p><div><span><b>{rows.length}</b> total</span><span><b>{rows.filter(item => !item.replayed).length}</b> observed</span><span><b>{rows.filter(item => item.replayed).length}</b> replayed</span></div></div><div className="metric-list">{rows.slice(0, 20).map((item, index) => <button key={item.id || index} onClick={() => onSignal(item)}><i style={{ background: color(item.severity) }} /><div><b>{item.entity_name || label(item.type)}</b><small>{item.source} · {item.summary}</small></div><strong style={{ color: color(item.severity) }}>{item.severity}</strong><time>{age(item.timestamp)}</time><ChevronRight /></button>)}{!rows.length && <Empty text={`No ${metric === 'urgent' ? 'urgent ' : ''}signals are present.`} />}</div></> }
   if (metric === 'affected') { const rows = (data?.components || []).filter(item => item.finding_count > 0); return <><div className="metric-intro"><h2>{definition.title}</h2><p>{definition.description}</p></div><div className="metric-list">{rows.map(item => <button key={item.entity_id} onClick={() => onComponent(item)}><i style={{ background: color(item.risk >= 50 ? 'high' : 'medium') }} /><div><b>{item.name}</b><small>{item.namespace} · {item.finding_count} signals · risk {item.risk}</small></div><ChevronRight /></button>)}</div></> }
   if (metric === 'namespaces') { const rows = Object.entries(data?.namespaces || {}).sort((a, b) => b[1] - a[1]); return <><div className="metric-intro"><h2>{definition.title}</h2><p>{definition.description}</p></div><div className="namespace-detail">{rows.map(([name, count]) => { const affected = (data?.components || []).filter(item => item.namespace === name && item.finding_count > 0).length; return <div key={name}><Layers3 /><div><b>{name}</b><small>{affected} affected resources</small></div><strong>{count} entities</strong></div> })}</div></> }
-  return <><div className="metric-intro"><h2>{definition.title}</h2><p>{definition.description}</p></div><div className="metric-list">{(data?.incidents || []).map((incident, index) => <div className="incident-row" key={incident.incident_id || index}><GitBranch /><div><b>{incident.title || incident.incident_id || 'Correlated incident'}</b><small>{incident.status || 'open'}</small></div></div>)}{!(data?.incidents || []).length && <Empty text="No correlated incidents are open. Individual findings remain visible in Live Signals." />}</div></>
+  return <><div className="metric-intro"><h2>{definition.title}</h2><p>{definition.description}</p></div><div className="metric-list">{(data?.incidents || []).map((incident, index) => <button className="incident-row" key={incident.incident_id || index} onClick={() => onIncident(incident)}><GitBranch /><div><b>{incident.title || incident.incident_id || 'Correlated incident'}</b><small>{incident.status || 'open'} · {incident.evidence_count || incident.timeline?.length || 0} lifecycle records</small></div><strong style={{ color: color(incident.severity || 'info') }}>{incident.severity || 'info'}</strong><ChevronRight /></button>)}{!(data?.incidents || []).length && <Empty text="No correlated incidents exist. Individual findings remain visible in Live Signals." />}</div></>
 }
 
 function DetailDrawer({ detail, data, onClose, onDetail }: { detail: Detail; data: Overview | null; onClose: () => void; onDetail: (detail: Detail) => void }) {
   useEffect(() => { const escape = (event: KeyboardEvent) => event.key === 'Escape' && onClose(); document.addEventListener('keydown', escape); return () => document.removeEventListener('keydown', escape) }, [onClose])
-  if (detail.kind === 'metric') return <div className="drawer-wrap" role="dialog" aria-modal="true"><button className="drawer-backdrop" onClick={onClose} aria-label="Close details" /><aside className="drawer metric-drawer"><div className="drawer-head"><div><span>METRIC EXPLORER</span><p>Every number opens into the records behind it.</p></div><button onClick={onClose}><X /></button></div><MetricDetail metric={detail.metric} data={data} onSignal={signal => onDetail({ kind: 'signal', signal })} onComponent={component => onDetail({ kind: 'component', component })} /></aside></div>
+  if (detail.kind === 'metric') return <div className="drawer-wrap" role="dialog" aria-modal="true"><button className="drawer-backdrop" onClick={onClose} aria-label="Close details" /><aside className="drawer metric-drawer"><div className="drawer-head"><div><span>METRIC EXPLORER</span><p>Every number opens into the records behind it.</p></div><button onClick={onClose}><X /></button></div><MetricDetail metric={detail.metric} data={data} onSignal={signal => onDetail({ kind: 'signal', signal })} onComponent={component => onDetail({ kind: 'component', component })} onIncident={incident => onDetail({ kind: 'incident', incident })} /></aside></div>
   if (detail.kind === 'source') {
     const records = (data?.timeline || []).filter(item => item.source === detail.source)
     const consoleUrl = detail.source === 'argus' ? consolePage(ARGUS_URL, '/threats') : PHOENIX_URL
     return <div className="drawer-wrap" role="dialog" aria-modal="true"><button className="drawer-backdrop" onClick={onClose} aria-label="Close details" /><aside className="drawer source-drawer"><div className="drawer-head"><div><span>SOG SOURCE EVIDENCE</span><h2>{detail.source === 'argus' ? 'Argus security evidence' : 'Phoenix resilience evidence'}</h2><p>{records.length} records currently stored in the Sentinel Operations Graph</p></div><button onClick={onClose}><X /></button></div><div className="source-truth"><AlertTriangle /><p><b>{records.length} evidence record{records.length === 1 ? '' : 's'} does not necessarily mean {records.length} incident{records.length === 1 ? '' : 's'}.</b> Incidents exist only after the specialist agent correlates or creates a case.</p></div><div className="metric-list">{records.map((record, index) => <button key={record.id || index} onClick={() => onDetail({ kind: 'signal', signal: record })}><i style={{ background: color(record.severity) }} /><div><b>{record.entity_name || label(record.type)}</b><small>{record.summary}</small></div><strong style={{ color: color(record.severity) }}>{record.severity}</strong><time>{age(record.timestamp)}</time><ChevronRight /></button>)}{!records.length && <Empty text={`No ${detail.source} evidence is currently stored in SOG.`} />}</div>{consoleUrl && <a className="source-console-link" href={consoleUrl}>{detail.source === 'argus' ? 'Open Argus Threat Feed' : 'Open Phoenix Overview'}<ArrowRight /></a>}</aside></div>
+  }
+  if (detail.kind === 'incident') {
+    const incident = detail.incident
+    return <div className="drawer-wrap" role="dialog" aria-modal="true"><button className="drawer-backdrop" onClick={onClose} aria-label="Close details" /><aside className="drawer incident-drawer"><div className="drawer-head"><div><span>CORRELATED INCIDENT</span><h2>{incident.title || incident.incident_id}</h2><p>{incident.correlation_id ? `Correlation ID · ${incident.correlation_id}` : incident.incident_id}</p></div><button onClick={onClose}><X /></button></div><div className="incident-facts"><span><small>STATUS</small><b>{incident.status || 'open'}</b></span><span><small>SEVERITY</small><b style={{ color: color(incident.severity || 'info') }}>{incident.severity || 'info'}</b></span><span><small>SOURCES</small><b>{(incident.sources || []).join(' + ') || 'unknown'}</b></span><span><small>EVIDENCE</small><b>{incident.evidence_count || incident.timeline?.length || 0}</b></span></div><section><h3><GitBranch /> Evidence-to-recovery timeline</h3><p className="timeline-help">Every step below carries the same explicit correlation ID. Standalone findings are excluded.</p><div className="lifecycle">{(incident.timeline || []).map((item, index) => <button key={item.id || index} onClick={() => onDetail({ kind: 'signal', signal: item })}><i style={{ background: color(item.source) }} /><div><header><span style={{ color: color(item.source) }}>{item.source}</span><strong>{item.stage ? label(item.stage) : label(item.type)}</strong><time>{age(item.timestamp)}</time></header><b>{item.summary}</b><small>{item.provenance || (item.replayed ? 'replayed' : 'observed')}{item.action ? ` · action ${label(item.action)}` : ''}{item.outcome ? ` · outcome ${label(item.outcome)}` : ''}</small></div><ChevronRight /></button>)}{!(incident.timeline || []).length && <Empty text="This SOG incident has no embedded lifecycle records." />}</div></section></aside></div>
   }
   const signal = detail.kind === 'signal' ? detail.signal : undefined, component = detail.kind === 'component' ? detail.component : undefined
   const evidence = component?.evidence || (signal ? [signal] : [])
