@@ -8,9 +8,9 @@ Commit history: https://github.com/CodeBuildder/sentinel/commits/main
 <h1 align="center">Sentinel</h1>
 
 <p align="center">
-  The master orchestrator and command-center dashboard for the Sentinel platform — a
-  LangGraph supervisor that aggregates security and resilience signals, scores fleet
-  risk, and produces daily intelligence reports.
+  The OpenAI-native master orchestrator and unified command center for the Sentinel
+  platform—correlating Argus security evidence and Phoenix resilience outcomes through
+  a shared World Model.
 </p>
 
 <p align="center">
@@ -33,7 +33,7 @@ event streams into fleet-wide situational awareness.
   Phoenix events through the common schema, and routes them into scoring and reporting
 - **Fleet risk scoring** — a continuous per-datacenter/per-component score derived from
   MTTR, recovery rate, cascade-prevention rate, and live threat signals
-- **Daily report generator** — Claude-narrated daily intelligence: simulated vs. actual
+- **Operational briefing** — OpenAI-generated intelligence: simulated vs. actual
   threats, simulated vs. actual failures, heal success rate, MTTR trend,
   cascade-prevention rate, and the causal chains behind the day's notable events
 - **Command-center dashboard** — a 23-datacenter geospatial/grid heatmap with
@@ -41,15 +41,31 @@ event streams into fleet-wide situational awareness.
   dependency graph with blast-radius pulse, and a daily insights panel — in the
   platform's dark command-center style
 
-## Status
+## Build Week command center
 
-Scaffolding in progress — see the [milestones](https://github.com/CodeBuildder/sentinel/milestones)
-(M4 Sentinel Orchestrator → M5 Sentinel Dashboard, then M6/M7 integration & polish) for
-the build sequence and the issue backlog.
+The Build Week MVP includes a FastAPI aggregation layer and React command center with:
+
+- unified Argus + Phoenix evidence timeline
+- transparent fleet/component risk scoring
+- World Model topology and posture
+- autonomy trust and human-gated action visibility
+- honest disconnected/degraded source states
+- OpenAI Responses API operational briefings generated from live shared state
+
+Run the World Model first, then:
+
+```bash
+cp .env.example .env
+make setup-local
+set -a; source .env; set +a
+make demo-local
+```
+
+Open **http://127.0.0.1:5174**.
 
 ## Stack
 
-FastAPI + LangGraph supervisor, Claude API for report narration and risk reasoning,
+FastAPI aggregation/orchestration service, OpenAI Responses API for operational briefing,
 React + TypeScript + Vite + Tailwind dashboard, real-time via WebSocket/SSE. Subscribes
 to the Redis-streams event bus defined in
 [sentinel-platform](https://github.com/CodeBuildder/sentinel-platform) and reuses the
