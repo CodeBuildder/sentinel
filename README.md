@@ -10,7 +10,7 @@ Commit history: https://github.com/CodeBuildder/sentinel/commits/main
 <p align="center">
   The OpenAI-native master orchestrator and unified command center for the Sentinel
   platform—correlating Argus security evidence and Phoenix resilience outcomes through
-  a shared World Model.
+  the Sentinel Operations Graph (SOG).
 </p>
 
 <p align="center">
@@ -47,12 +47,12 @@ The Build Week MVP includes a FastAPI aggregation layer and React command center
 
 - unified Argus + Phoenix evidence timeline
 - transparent fleet/component risk scoring
-- World Model topology and posture
+- Sentinel Operations Graph topology and posture
 - autonomy trust and human-gated action visibility
 - honest disconnected/degraded source states
 - OpenAI Responses API operational briefings generated from live shared state
 
-Run the World Model first, then:
+Run the Sentinel Operations Graph service first, then:
 
 ```bash
 cp .env.example .env

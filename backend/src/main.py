@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from config import config
 
 log = structlog.get_logger()
-app = FastAPI(title="Sentinel Orchestrator", version="0.1.0")
+app = FastAPI(title="Sentinel Orchestrator and Operations Graph Gateway", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 SEVERITY_WEIGHT = {"critical": 100, "high": 72, "medium": 45, "med": 45, "low": 18, "info": 5}
@@ -102,7 +102,7 @@ async def build_overview() -> dict:
     try:
         topology = await _get("/topology")
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=503, detail=f"World Model unavailable: {exc}") from exc
+        raise HTTPException(status_code=503, detail=f"Sentinel Operations Graph unavailable: {exc}") from exc
     nodes = topology.get("nodes", [])
     findings = await _findings_for_entities(nodes)
     try:
