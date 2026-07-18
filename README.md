@@ -52,6 +52,45 @@ The Build Week MVP includes a FastAPI aggregation layer and React command center
 - honest disconnected/degraded source states
 - OpenAI Responses API operational briefings generated from live shared state
 
+### One-command complete platform demo
+
+For the recommended judge path, keep the three checkouts in this layout and run the
+orchestrator from Argus:
+
+```text
+Projects/
+├── argus-k8s/                 # run the command here
+└── sentinel-stack/
+    ├── phoenix/
+    └── sentinel/
+```
+
+Install dependencies once, select the real three-node k3s context, and run the
+non-mutating preflight:
+
+```bash
+make -C ../../argus-k8s setup-local
+make setup-local
+npm --prefix ../phoenix/dashboard install
+kubectl config use-context argus
+make -C ../../argus-k8s demo-platform-dry-run
+```
+
+Launch the complete platform:
+
+```bash
+make -C ../../argus-k8s demo-platform
+```
+
+The command starts or reuses Argus, Phoenix, Sentinel, and the Sentinel Operations
+Graph; publishes deterministic evidence for one shared resource; and verifies the
+cross-agent incident through Sentinel before declaring readiness. Open Argus at
+**http://127.0.0.1:5173**, Phoenix at **http://127.0.0.1:5174**, and Sentinel at
+**http://127.0.0.1:5175**. Evidence is explicitly labeled `replayed` and `simulator`;
+no live Chaos Mesh fault is injected. `Ctrl-C` stops only processes the command owns.
+
+### Sentinel-only development
+
 Run the Sentinel Operations Graph service first, then:
 
 ```bash
