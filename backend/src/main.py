@@ -138,15 +138,43 @@ async def build_overview() -> dict:
         "payload": row.get("payload", {}), "replayed": bool(row.get("replayed")),
     } for row in findings[:80]]
 
+    evidence_by_entity: dict[str, list[dict]] = {}
+    for item in timeline:
+        evidence_by_entity.setdefault(str(item.get("entity_id") or "unknown"), []).append(item)
+    for component in components:
+        evidence = evidence_by_entity.get(str(component.get("entity_id")), [])
+        component["evidence"] = evidence[:8]
+        component["latest_at"] = evidence[0].get("timestamp") if evidence else None
+        component["sources"] = dict(Counter(item.get("source", "unknown") for item in evidence))
+        component["severity_counts"] = dict(Counter(item.get("severity", "info") for item in evidence))
+
+    source_health = {}
+    for source_name in ("argus", "phoenix"):
+        source_findings = [item for item in timeline if item["source"] == source_name]
+        source_health[source_name] = {
+            "connected": bool(source_findings),
+            "findings": len(source_findings),
+            "latest_at": source_findings[0]["timestamp"] if source_findings else None,
+            "live": sum(not item["replayed"] for item in source_findings),
+            "replayed": sum(item["replayed"] for item in source_findings),
+            "critical": sum(item["severity"] == "critical" for item in source_findings),
+            "high": sum(item["severity"] == "high" for item in source_findings),
+        }
+
+    namespaces = Counter(str(node.get("namespace") or "unscoped") for node in nodes)
+
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(), "status": "degraded" if degraded else "ok",
         "degraded_sources": degraded, "fleet_risk": fleet_risk, "risk_level": risk_level,
         "counts": {"entities": len(nodes), "edges": len(topology.get("edges", [])),
                    "findings": len(findings), "incidents": len(incidents),
                    "argus": sources.get("argus", 0), "phoenix": sources.get("phoenix", 0),
-                   "critical": severities.get("critical", 0), "high": severities.get("high", 0)},
-        "sources": {"argus": {"connected": sources.get("argus", 0) > 0, "findings": sources.get("argus", 0)},
-                    "phoenix": {"connected": sources.get("phoenix", 0) > 0, "findings": sources.get("phoenix", 0)}},
+                   "critical": severities.get("critical", 0), "high": severities.get("high", 0),
+                   "live": sum(not item["replayed"] for item in timeline),
+                   "replayed": sum(item["replayed"] for item in timeline),
+                   "namespaces": len(namespaces),
+                   "affected": sum(item["finding_count"] > 0 for item in components)},
+        "sources": source_health, "namespaces": dict(namespaces),
         "components": components[:20], "timeline": timeline, "topology": topology,
         "incidents": incidents, "trust": trust,
     }

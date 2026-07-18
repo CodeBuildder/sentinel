@@ -32,4 +32,10 @@ async def test_overview_aggregates_sources():
     ):
         result = await build_overview()
     assert result["counts"]["argus"] == 1
+    assert result["counts"]["live"] == 1
+    assert result["counts"]["replayed"] == 0
+    assert result["counts"]["affected"] == 1
+    assert result["sources"]["argus"]["connected"] is True
+    assert result["sources"]["argus"]["latest_at"] == "2026-07-18T00:00:00Z"
+    assert result["components"][0]["evidence"][0]["summary"] == "shell detected"
     assert result["timeline"][0]["summary"] == "shell detected"

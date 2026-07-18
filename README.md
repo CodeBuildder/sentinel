@@ -63,6 +63,11 @@ make demo-local
 
 Open **http://127.0.0.1:5175**.
 
+The top-bar product switcher uses the explicit `VITE_ARGUS_URL` and
+`VITE_PHOENIX_URL` values from `.env`. The reserved local console ports are Argus
+`5173`, Phoenix `5174`, and Sentinel `5175`; deployed environments should replace
+those values with their public URLs.
+
 ## Stack
 
 FastAPI aggregation/orchestration service, OpenAI Responses API for operational briefing,
