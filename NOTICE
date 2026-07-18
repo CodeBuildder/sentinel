@@ -11,7 +11,7 @@ This project represents original work including:
 - A fleet risk-scoring engine combining MTTR, recovery rate, cascade-prevention rate,
   and live threat signals into a continuous per-datacenter/per-component score
 - A daily intelligence report generator narrating causal incident chains in natural
-  language via Claude
+  language via OpenAI
 - A 23-datacenter geospatial command-center dashboard design with live dependency-graph
   and blast-radius visualization
 
