@@ -51,6 +51,57 @@ def _severity(finding: dict) -> str:
     return str(finding.get("severity") or finding.get("payload", {}).get("severity") or "info").lower()
 
 
+def _summary(finding: dict) -> str:
+    payload = finding.get("payload", {})
+    assessment = payload.get("assessment")
+    if isinstance(assessment, dict):
+        assessment = assessment.get("assessment") or assessment.get("summary")
+    value = (assessment or payload.get("causal_chain") or payload.get("outcome")
+             or payload.get("rule") or payload.get("description")
+             or payload.get("annotations", {}).get("summary") or payload.get("alertname")
+             or finding.get("type", "Operational finding"))
+    return str(value)
+
+
+def _provenance(finding: dict) -> str:
+    payload = finding.get("payload", {})
+    explicit = payload.get("provenance") or payload.get("execution_mode") or payload.get("domain")
+    if explicit in {"chaos_mesh", "live_chaos"}:
+        return "live_chaos"
+    if explicit in {"simulator", "synthetic"}:
+        return "simulator"
+    return "replayed" if finding.get("replayed") else "observed"
+
+
+def _correlated_incidents(timeline: list[dict]) -> list[dict]:
+    """Build cases only from an explicit ID shared by both specialist agents."""
+    groups: dict[str, list[dict]] = {}
+    for item in timeline:
+        correlation_id = str(item.get("correlation_id") or "").strip()
+        if correlation_id:
+            groups.setdefault(correlation_id, []).append(item)
+
+    severity_rank = {"critical": 5, "high": 4, "medium": 3, "med": 3, "low": 2, "info": 1}
+    incidents = []
+    for correlation_id, evidence in groups.items():
+        sources = {_source(item) for item in evidence}
+        if not {"argus", "phoenix"}.issubset(sources):
+            continue
+        ordered = sorted(evidence, key=lambda item: str(item.get("timestamp") or ""))
+        severity = max((_severity(item) for item in evidence), key=lambda value: severity_rank.get(value, 0))
+        terminal = next((item for item in reversed(ordered) if item.get("outcome")), None)
+        entity = next((item.get("entity_name") for item in ordered if item.get("entity_name")), None)
+        incidents.append({
+            "incident_id": f"corr:{correlation_id}", "correlation_id": correlation_id,
+            "title": f"Argus → Phoenix lifecycle{f' for {entity}' if entity else ''}",
+            "status": "resolved" if terminal else "open", "severity": severity,
+            "started_at": ordered[0].get("timestamp"), "updated_at": ordered[-1].get("timestamp"),
+            "sources": sorted(sources), "evidence_count": len(ordered), "timeline": ordered,
+            "provenance": sorted({str(item.get("provenance") or "observed") for item in ordered}),
+        })
+    return sorted(incidents, key=lambda item: str(item.get("updated_at") or ""), reverse=True)
+
+
 async def _findings_for_entities(nodes: list[dict]) -> list[dict]:
     # SOG currently exposes findings per entity. Keep concurrency bounded so a
     # large topology does not overwhelm Redis, while avoiding a judge-facing
@@ -139,16 +190,14 @@ async def _build_overview_uncached() -> dict:
         "stage": row.get("payload", {}).get("stage") or row.get("payload", {}).get("node"),
         "action": row.get("payload", {}).get("recommended_action") or row.get("payload", {}).get("action_taken"),
         "outcome": row.get("payload", {}).get("outcome") or row.get("payload", {}).get("verify_result"),
-        "summary": row.get("payload", {}).get("assessment")
-            or row.get("payload", {}).get("causal_chain")
-            or row.get("payload", {}).get("outcome")
-            or row.get("payload", {}).get("rule")
-            or row.get("payload", {}).get("description")
-            or row.get("payload", {}).get("annotations", {}).get("summary")
-            or row.get("payload", {}).get("alertname")
-            or row.get("type", "Operational finding"),
+        "summary": _summary(row),
         "payload": row.get("payload", {}), "replayed": bool(row.get("replayed")),
+        "provenance": _provenance(row),
     } for row in findings[:80]]
+
+    correlated = _correlated_incidents(timeline)
+    existing_ids = {str(item.get("correlation_id") or item.get("incident_id") or "") for item in incidents}
+    incidents = [*incidents, *(item for item in correlated if item["correlation_id"] not in existing_ids)]
 
     evidence_by_entity: dict[str, list[dict]] = {}
     for item in timeline:
