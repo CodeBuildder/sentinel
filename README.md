@@ -61,7 +61,7 @@ set -a; source .env; set +a
 make demo-local
 ```
 
-Open **http://127.0.0.1:5174**.
+Open **http://127.0.0.1:5175**.
 
 ## Stack
 
