@@ -2,12 +2,17 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from main import _correlated_incidents, _risk, _source, build_overview
+from main import _correlated_incidents, _risk, _source, _summary, build_overview
 
 
 def test_source_normalizes_agents():
     assert _source({"source": "argus-agent"}) == "argus"
     assert _source({"source": "phoenix"}) == "phoenix"
+
+
+def test_summary_normalizes_structured_argus_assessment():
+    finding = {"payload": {"assessment": {"assessment": "critical shell evidence", "confidence": 0.97}}}
+    assert _summary(finding) == "critical shell evidence"
 
 
 def test_risk_is_transparent_and_bounded():

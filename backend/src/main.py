@@ -51,6 +51,18 @@ def _severity(finding: dict) -> str:
     return str(finding.get("severity") or finding.get("payload", {}).get("severity") or "info").lower()
 
 
+def _summary(finding: dict) -> str:
+    payload = finding.get("payload", {})
+    assessment = payload.get("assessment")
+    if isinstance(assessment, dict):
+        assessment = assessment.get("assessment") or assessment.get("summary")
+    value = (assessment or payload.get("causal_chain") or payload.get("outcome")
+             or payload.get("rule") or payload.get("description")
+             or payload.get("annotations", {}).get("summary") or payload.get("alertname")
+             or finding.get("type", "Operational finding"))
+    return str(value)
+
+
 def _provenance(finding: dict) -> str:
     payload = finding.get("payload", {})
     explicit = payload.get("provenance") or payload.get("execution_mode") or payload.get("domain")
@@ -178,14 +190,7 @@ async def _build_overview_uncached() -> dict:
         "stage": row.get("payload", {}).get("stage") or row.get("payload", {}).get("node"),
         "action": row.get("payload", {}).get("recommended_action") or row.get("payload", {}).get("action_taken"),
         "outcome": row.get("payload", {}).get("outcome") or row.get("payload", {}).get("verify_result"),
-        "summary": row.get("payload", {}).get("assessment")
-            or row.get("payload", {}).get("causal_chain")
-            or row.get("payload", {}).get("outcome")
-            or row.get("payload", {}).get("rule")
-            or row.get("payload", {}).get("description")
-            or row.get("payload", {}).get("annotations", {}).get("summary")
-            or row.get("payload", {}).get("alertname")
-            or row.get("type", "Operational finding"),
+        "summary": _summary(row),
         "payload": row.get("payload", {}), "replayed": bool(row.get("replayed")),
         "provenance": _provenance(row),
     } for row in findings[:80]]
