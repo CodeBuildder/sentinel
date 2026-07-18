@@ -17,6 +17,7 @@ def test_risk_is_transparent_and_bounded():
     assert 0 <= fleet <= 100
     assert level in {"stable", "guarded", "high", "critical"}
     assert components[0]["finding_count"] == 1
+    assert fleet == components[0]["risk"]
 
 
 @pytest.mark.asyncio

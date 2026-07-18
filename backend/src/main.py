@@ -92,8 +92,10 @@ def _risk(nodes: list[dict], findings: list[dict]) -> tuple[int, str, list[dict]
             "fragility": fragility, "finding_count": len(recent),
         })
     components.sort(key=lambda item: item["risk"], reverse=True)
-    fleet = round(sum(item["risk"] for item in components) / len(components)) if components else 0
-    level = "critical" if fleet >= 75 else "high" if fleet >= 50 else "guarded" if fleet >= 25 else "stable"
+    # Fleet posture should communicate the most exposed live service. Averaging over
+    # every healthy Kubernetes object hid localized active incidents as a zero.
+    fleet = max((item["risk"] for item in components), default=0)
+    level = "critical" if fleet >= 75 else "high" if fleet >= 50 else "guarded" if fleet >= 10 else "stable"
     return fleet, level, components
 
 
@@ -129,6 +131,9 @@ async def build_overview() -> dict:
             or row.get("payload", {}).get("causal_chain")
             or row.get("payload", {}).get("outcome")
             or row.get("payload", {}).get("rule")
+            or row.get("payload", {}).get("description")
+            or row.get("payload", {}).get("annotations", {}).get("summary")
+            or row.get("payload", {}).get("alertname")
             or row.get("type", "Operational finding"),
         "payload": row.get("payload", {}), "replayed": bool(row.get("replayed")),
     } for row in findings[:80]]
