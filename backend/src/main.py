@@ -121,6 +121,10 @@ async def build_overview() -> dict:
         "id": row.get("event_id"), "source": _source(row), "severity": _severity(row),
         "timestamp": row.get("timestamp"), "entity_id": row.get("entity_id"),
         "entity_name": row.get("entity_name"), "type": row.get("type", "finding"),
+        "correlation_id": row.get("correlation_id"),
+        "stage": row.get("payload", {}).get("stage") or row.get("payload", {}).get("node"),
+        "action": row.get("payload", {}).get("recommended_action") or row.get("payload", {}).get("action_taken"),
+        "outcome": row.get("payload", {}).get("outcome") or row.get("payload", {}).get("verify_result"),
         "summary": row.get("payload", {}).get("assessment")
             or row.get("payload", {}).get("causal_chain")
             or row.get("payload", {}).get("outcome")
