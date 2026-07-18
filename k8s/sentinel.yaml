@@ -1,0 +1,82 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sentinel-system
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: sentinel-secrets
+  namespace: sentinel-system
+type: Opaque
+stringData:
+  openai-api-key: "replace-at-deploy-time"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sentinel-orchestrator
+  namespace: sentinel-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: sentinel-orchestrator}
+  template:
+    metadata:
+      labels: {app: sentinel-orchestrator}
+    spec:
+      containers:
+        - name: orchestrator
+          image: sentinel-orchestrator:latest
+          imagePullPolicy: Never
+          ports: [{containerPort: 8080}]
+          env:
+            - {name: WORLD_MODEL_URL, value: "http://sentinel-world-model.sentinel-platform.svc.cluster.local:8000"}
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef: {name: sentinel-secrets, key: openai-api-key}
+          resources:
+            requests: {cpu: 50m, memory: 96Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          readinessProbe: {httpGet: {path: /health, port: 8080}, initialDelaySeconds: 5, periodSeconds: 10}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sentinel-orchestrator
+  namespace: sentinel-system
+spec:
+  selector: {app: sentinel-orchestrator}
+  ports: [{port: 8080, targetPort: 8080}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sentinel-dashboard
+  namespace: sentinel-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: sentinel-dashboard}
+  template:
+    metadata:
+      labels: {app: sentinel-dashboard}
+    spec:
+      containers:
+        - name: dashboard
+          image: sentinel-dashboard:latest
+          imagePullPolicy: Never
+          ports: [{containerPort: 8080}]
+          resources:
+            requests: {cpu: 25m, memory: 32Mi}
+            limits: {cpu: 250m, memory: 128Mi}
+          readinessProbe: {httpGet: {path: /, port: 8080}, initialDelaySeconds: 3, periodSeconds: 10}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sentinel-dashboard
+  namespace: sentinel-system
+spec:
+  selector: {app: sentinel-dashboard}
+  ports: [{port: 80, targetPort: 8080}]

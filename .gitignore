@@ -1,6 +1,7 @@
 # Secrets — never commit these
 *.env
 .env*
+!.env.example
 secrets/
 kubeconfig
 *.kubeconfig

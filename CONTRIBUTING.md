@@ -32,7 +32,7 @@ chore: bump langgraph and fastapi versions
 - `orchestrator` — LangGraph supervisor, event normalization, fleet risk scoring
 - `dashboard` — React + TS + Vite + Tailwind master command-center UI
 - `reports` — daily report generator and insights
-- `ai` — Claude reasoning and report narration
+- `ai` — OpenAI reasoning and report narration
 - `ci` — CI/CD pipeline
 
 Milestones (`M4`/`M5` for Sentinel's own build, plus `M6`/`M7` for cross-platform
