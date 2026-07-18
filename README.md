@@ -62,17 +62,15 @@ Projects/
 ├── argus-k8s/                 # run the command here
 └── sentinel-stack/
     ├── phoenix/
-    └── sentinel/
+    ├── sentinel/
+    └── sentinel-platform/
 ```
 
-Install dependencies once, select the real three-node k3s context, and run the
-non-mutating preflight:
+The recommended judge path is cluster-free. It needs Docker or OrbStack for one
+disposable Redis container, but does not need Kubernetes, kubectl, Cilium, Falco, or
+Chaos Mesh. Run the non-mutating preflight:
 
 ```bash
-make -C ../../argus-k8s setup-local
-make setup-local
-npm --prefix ../phoenix/dashboard install
-kubectl config use-context argus
 make -C ../../argus-k8s demo-platform-dry-run
 ```
 
@@ -82,12 +80,23 @@ Launch the complete platform:
 make -C ../../argus-k8s demo-platform
 ```
 
-The command starts or reuses Argus, Phoenix, Sentinel, and the Sentinel Operations
-Graph; publishes deterministic evidence for one shared resource; and verifies the
-cross-agent incident through Sentinel before declaring readiness. Open Argus at
+The command installs missing dependencies; starts a disposable local SOG and real local
+Argus, Phoenix, and Sentinel services; seeds an explicitly synthetic three-node,
+multi-namespace topology; and verifies multiple cross-agent incidents through Sentinel.
+A bounded replay/simulator feed makes counters, timelines, freshness, and risk views
+change during the presentation. Open Argus at
 **http://127.0.0.1:5173**, Phoenix at **http://127.0.0.1:5174**, and Sentinel at
-**http://127.0.0.1:5175**. Evidence is explicitly labeled `replayed` and `simulator`;
-no live Chaos Mesh fault is injected. `Ctrl-C` stops only processes the command owns.
+**http://127.0.0.1:5175**. Every synthetic entity and finding is labeled; no Kubernetes
+API or live Chaos Mesh fault is used. `Ctrl-C` stops the local services and removes the
+disposable Redis container.
+
+For the real three-node k3s-backed integration proof:
+
+```bash
+kubectl config use-context argus
+make -C ../../argus-k8s demo-platform-live-dry-run
+make -C ../../argus-k8s demo-platform-live
+```
 
 ### Sentinel-only development
 
