@@ -97,6 +97,11 @@ def _risk(nodes: list[dict], findings: list[dict]) -> tuple[int, str, list[dict]
             "namespace": node.get("namespace"), "entity_type": node.get("entity_type"),
             "risk": score, "security_posture": node.get("security_posture", "clean"),
             "fragility": fragility, "finding_count": len(recent),
+            "risk_factors": {
+                "threat": {"raw": threat, "weight": 50, "contribution": round(threat * 0.5)},
+                "posture": {"raw": posture, "weight": 30, "contribution": round(posture * 0.3)},
+                "fragility": {"raw": fragility, "weight": 20, "contribution": round(fragility * 0.2)},
+            },
         })
     components.sort(key=lambda item: item["risk"], reverse=True)
     # Fleet posture should communicate the most exposed live service. Averaging over

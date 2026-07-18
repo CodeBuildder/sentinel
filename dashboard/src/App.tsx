@@ -15,6 +15,7 @@ type Component = {
   entity_id: string; name: string; namespace: string; entity_type: string; risk: number
   security_posture: string; fragility: number; finding_count: number; latest_at?: string
   sources?: Record<string, number>; severity_counts?: Record<string, number>; evidence?: Timeline[]
+  risk_factors?: Record<string, { raw: number; weight: number; contribution: number }>
 }
 type SourceHealth = {
   connected: boolean; findings: number; latest_at?: string; live: number; replayed: number
@@ -27,11 +28,12 @@ type Overview = {
   topology: { nodes: any[]; edges: any[] }; trust: any[]; incidents?: any[]
 }
 type MetricKind = 'signals' | 'urgent' | 'affected' | 'namespaces' | 'incidents'
-type Detail = { kind: 'signal'; signal: Timeline } | { kind: 'component'; component: Component } | { kind: 'metric'; metric: MetricKind }
+type Detail = { kind: 'signal'; signal: Timeline } | { kind: 'component'; component: Component } | { kind: 'metric'; metric: MetricKind } | { kind: 'source'; source: 'argus' | 'phoenix' }
 
 const API = '/api'
 const ARGUS_URL = (import.meta as any).env.VITE_ARGUS_URL as string | undefined
 const PHOENIX_URL = (import.meta as any).env.VITE_PHOENIX_URL as string | undefined
+const consolePage = (base: string | undefined, page: string) => base ? `${base.replace(/\/$/, '')}${page}` : undefined
 const palette = {
   argus: '#45d9ff', phoenix: '#55e6a5', sentinel: '#b68cff', human: '#ffd166',
   critical: '#ff5874', high: '#ffad55', medium: '#f2d65c', low: '#55e6a5', info: '#6594cc',
@@ -46,6 +48,23 @@ const age = (value?: string) => {
 }
 const label = (value?: string) => (value || 'unknown').replace(/_/g, ' ')
 const riskCopy = (level?: string) => level === 'critical' ? 'Immediate attention' : level === 'high' ? 'Action advised' : level === 'guarded' ? 'Watch closely' : 'No elevated risk'
+
+function LiveRiskPanel({ data, previousRisk, onSelect }: { data: Overview | null; previousRisk: number | null; onSelect: (component: Component) => void }) {
+  const top = data?.components?.[0]
+  const score = data?.fleet_risk ?? 0
+  const delta = previousRisk === null ? 0 : score - previousRisk
+  const connected = ['argus', 'phoenix'].filter(source => data?.sources?.[source]?.connected).length
+  const latest = data?.timeline?.[0]
+  return <button className={`live-risk ${data?.risk_level || 'stable'}`} onClick={() => top && onSelect(top)} disabled={!top} aria-label={top ? `Explain risk score ${score} for ${top.name}` : 'No ranked resource available'}>
+    <div className="live-risk-head"><span><i />LIVE RISK</span><time>{data ? age(data.generated_at) : 'connecting'}</time></div>
+    <div className="live-risk-score"><b>{data ? score : '—'}</b><span>/100</span><em className={delta > 0 ? 'up' : delta < 0 ? 'down' : ''}>{delta > 0 ? `+${delta}` : delta < 0 ? delta : 'steady'}</em></div>
+    <div className="live-risk-track"><i style={{ width: `${score}%` }} /></div>
+    <strong>{top?.name || 'No ranked resource'}</strong>
+    <p>{top ? `Highest current resource risk · ${top.finding_count} supporting signal${top.finding_count === 1 ? '' : 's'}` : 'Waiting for mapped evidence'}</p>
+    <div className="live-risk-meta"><span><i className={connected === 2 ? 'ok' : ''} />{connected}/2 agents reporting</span><span>{latest ? `Latest ${age(latest.timestamp)}` : riskCopy(data?.risk_level)}</span></div>
+    <span className="live-risk-action">VIEW SCORE EVIDENCE <ChevronRight /></span>
+  </button>
+}
 
 function ConsoleLink({ href, children }: { href?: string; children: React.ReactNode }) {
   return href
@@ -67,7 +86,24 @@ function SourceCard({ name, data, icon: Icon }: { name: 'argus' | 'phoenix'; dat
     <div className="source-identity"><span className="source-icon"><Icon /></span><div><small>{name === 'argus' ? 'SECURITY AGENT' : 'RESILIENCE AGENT'}</small><b>{name}</b></div></div>
     <span className={`connection ${connected ? 'live' : 'waiting'}`}><i />{connected ? 'evidence live' : 'waiting for evidence'}</span>
     <div className="source-metrics"><div><b>{data?.findings || 0}</b><small>signals</small></div><div><b>{data?.live || 0}</b><small>observed</small></div><div><b>{(data?.critical || 0) + (data?.high || 0)}</b><small>urgent</small></div></div>
-    <p>{connected ? `Latest ${age(data?.latest_at)} · ${data?.replayed || 0} replayed` : `No ${name} finding is present in SOG yet.`}</p>
+    <p>{connected ? `Latest ${age(data?.latest_at)} · ${data?.replayed || 0} replayed` : `No ${name} finding is present in the Sentinel Operations Graph yet.`}</p>
+  </div>
+}
+
+function SogBridge({ data, onSource }: { data: Overview | null; onSource: (source: 'argus' | 'phoenix') => void }) {
+  const argus = data?.sources.argus
+  const phoenix = data?.sources.phoenix
+  const live = Boolean(argus?.connected || phoenix?.connected)
+  return <div className={`sog-card ${live ? 'active' : ''}`}>
+    <div className="sog-heading"><GitBranch /><span><b>SOG</b> · SENTINEL OPERATIONS GRAPH</span><em><i />{live ? 'SYNCING LIVE' : 'WAITING'}</em></div>
+    <div className="sog-flow" aria-label="Argus and Phoenix evidence flowing through the Sentinel Operations Graph">
+      <button className={`sog-source argus ${argus?.connected ? 'online' : ''}`} onClick={() => onSource('argus')} title="View the Argus evidence behind this count"><Shield /><span>ARGUS</span><b>{argus?.findings || 0}</b><small>VIEW EVIDENCE <ChevronRight /></small></button>
+      <div className="sog-path"><i /><i /><i /></div>
+      <div className="sog-core"><Network /><b>{data?.counts.entities || 0}</b><span>ENTITIES</span></div>
+      <div className="sog-path reverse"><i /><i /><i /></div>
+      <button className={`sog-source phoenix ${phoenix?.connected ? 'online' : ''}`} onClick={() => onSource('phoenix')} title="View the Phoenix evidence behind this count"><Zap /><span>PHOENIX</span><b>{phoenix?.findings || 0}</b><small>VIEW EVIDENCE <ChevronRight /></small></button>
+    </div>
+    <div className="sog-summary"><span><b>{data?.counts.edges || 0}</b> live relationships</span><span><b>{data?.counts.findings || 0}</b> evidence records</span><time>{data ? `synced ${age(data.generated_at)}` : 'connecting'}</time></div>
   </div>
 }
 
@@ -112,7 +148,7 @@ function EvidenceSankey({ events }: { events: Timeline[] }) {
     {sources.map(source => { const p = sourcePosition.get(source)!, count = events.filter(event => event.source === source).length; return <g key={source}><rect x={p.x} y={p.y - 16} width={nodeWidth} height={32} rx="5" fill={sourceColor(source)} /><text x={p.x - 10} y={p.y - 2} textAnchor="end">{source.toUpperCase()}</text><text className="count" x={p.x - 10} y={p.y + 12} textAnchor="end">{count} signals</text></g> })}
     {severities.map(severity => { const p = severityPosition.get(severity)!, count = events.filter(event => event.severity === severity).length; return <g key={severity}><rect x={p.x} y={p.y - 16} width={nodeWidth} height={32} rx="5" fill={color(severity)} /><text x={p.x + 28} y={p.y - 2}>{severity.toUpperCase()}</text><text className="count" x={p.x + 28} y={p.y + 12}>{count} classified</text></g> })}
     {states.map(state => { const p = statePosition.get(state)!, count = events.filter(event => (event.outcome || event.action ? 'handled' : 'open') === state).length; return <g key={state}><rect x={p.x} y={p.y - 16} width={nodeWidth} height={32} rx="5" fill={state === 'handled' ? color('low') : color('high')} /><text x={p.x + 28} y={p.y - 2}>{state.toUpperCase()}</text><text className="count" x={p.x + 28} y={p.y + 12}>{count} signals</text></g> })}
-  </svg> : <Empty text="Evidence flow appears after the first SOG finding." />}<p className="sankey-explain">Read left to right: where evidence came from, how severe it is, and whether an agent has handled it. Wider bands represent more signals.</p></div>
+  </svg> : <Empty text="Evidence flow appears after the first Sentinel Operations Graph finding." />}<p className="sankey-explain">Read left to right: where evidence came from, how severe it is, and whether an agent has handled it. Wider bands represent more signals.</p></div>
 }
 
 function TopologyGraph({ nodes, edges, selected, onSelect }: { nodes: any[]; edges: any[]; selected?: string; onSelect: (id: string) => void }) {
@@ -145,7 +181,7 @@ function TrustLadder({ records }: { records: any[] }) {
 
 function MetricDetail({ metric, data, onSignal, onComponent }: { metric: MetricKind; data: Overview | null; onSignal: (signal: Timeline) => void; onComponent: (component: Component) => void }) {
   const definitions: Record<MetricKind, { title: string; description: string }> = {
-    signals: { title: 'Live signals', description: 'Every finding in the current SOG evidence window, separated into observed and replayed records.' },
+    signals: { title: 'Live signals', description: 'Every finding in the current Sentinel Operations Graph evidence window, separated into observed and replayed records.' },
     urgent: { title: 'Urgent evidence', description: 'Critical and high-severity findings that should be reviewed before lower-priority telemetry.' },
     affected: { title: 'Affected resources', description: 'Mapped resources with one or more findings in the current evidence window.' },
     namespaces: { title: 'Namespace coverage', description: 'Kubernetes isolation boundaries represented in the Sentinel Operations Graph.' },
@@ -161,10 +197,16 @@ function MetricDetail({ metric, data, onSignal, onComponent }: { metric: MetricK
 function DetailDrawer({ detail, data, onClose, onDetail }: { detail: Detail; data: Overview | null; onClose: () => void; onDetail: (detail: Detail) => void }) {
   useEffect(() => { const escape = (event: KeyboardEvent) => event.key === 'Escape' && onClose(); document.addEventListener('keydown', escape); return () => document.removeEventListener('keydown', escape) }, [onClose])
   if (detail.kind === 'metric') return <div className="drawer-wrap" role="dialog" aria-modal="true"><button className="drawer-backdrop" onClick={onClose} aria-label="Close details" /><aside className="drawer metric-drawer"><div className="drawer-head"><div><span>METRIC EXPLORER</span><p>Every number opens into the records behind it.</p></div><button onClick={onClose}><X /></button></div><MetricDetail metric={detail.metric} data={data} onSignal={signal => onDetail({ kind: 'signal', signal })} onComponent={component => onDetail({ kind: 'component', component })} /></aside></div>
+  if (detail.kind === 'source') {
+    const records = (data?.timeline || []).filter(item => item.source === detail.source)
+    const consoleUrl = detail.source === 'argus' ? consolePage(ARGUS_URL, '/threats') : PHOENIX_URL
+    return <div className="drawer-wrap" role="dialog" aria-modal="true"><button className="drawer-backdrop" onClick={onClose} aria-label="Close details" /><aside className="drawer source-drawer"><div className="drawer-head"><div><span>SOG SOURCE EVIDENCE</span><h2>{detail.source === 'argus' ? 'Argus security evidence' : 'Phoenix resilience evidence'}</h2><p>{records.length} records currently stored in the Sentinel Operations Graph</p></div><button onClick={onClose}><X /></button></div><div className="source-truth"><AlertTriangle /><p><b>{records.length} evidence record{records.length === 1 ? '' : 's'} does not necessarily mean {records.length} incident{records.length === 1 ? '' : 's'}.</b> Incidents exist only after the specialist agent correlates or creates a case.</p></div><div className="metric-list">{records.map((record, index) => <button key={record.id || index} onClick={() => onDetail({ kind: 'signal', signal: record })}><i style={{ background: color(record.severity) }} /><div><b>{record.entity_name || label(record.type)}</b><small>{record.summary}</small></div><strong style={{ color: color(record.severity) }}>{record.severity}</strong><time>{age(record.timestamp)}</time><ChevronRight /></button>)}{!records.length && <Empty text={`No ${detail.source} evidence is currently stored in SOG.`} />}</div>{consoleUrl && <a className="source-console-link" href={consoleUrl}>{detail.source === 'argus' ? 'Open Argus Threat Feed' : 'Open Phoenix Overview'}<ArrowRight /></a>}</aside></div>
+  }
   const signal = detail.kind === 'signal' ? detail.signal : undefined, component = detail.kind === 'component' ? detail.component : undefined
   const evidence = component?.evidence || (signal ? [signal] : [])
   return <div className="drawer-wrap" role="dialog" aria-modal="true"><button className="drawer-backdrop" onClick={onClose} aria-label="Close details" /><aside className="drawer"><div className="drawer-head"><div><span>{detail.kind === 'signal' ? 'OPERATIONAL EVIDENCE' : 'RESOURCE INTELLIGENCE'}</span><h2>{signal?.entity_name || component?.name || 'Unmapped resource'}</h2><p>{signal?.entity_id || component?.entity_id}</p></div><button onClick={onClose}><X /></button></div>
     {component && <div className="drawer-stats"><div><span>RISK</span><b>{component.risk}</b></div><div><span>FRAGILITY</span><b>{component.fragility}</b></div><div><span>FINDINGS</span><b>{component.finding_count}</b></div></div>}
+    {component && <section className="risk-proof"><h3><Activity /> Why this score is {component.risk}/100</h3><p>Sentinel combines the strongest current threat, declared security posture, and resilience fragility. The weighted contributions below add to the displayed score.</p><div className="risk-equation">{Object.entries(component.risk_factors || {}).map(([name, factor]) => <div key={name}><header><span>{label(name)}</span><b>{factor.contribution} points</b></header><div><i style={{ width: `${factor.raw}%` }} /></div><small>Raw {factor.raw}/100 × {factor.weight}% weight</small></div>)}</div><div className="risk-total"><span>Combined resource risk</span><b>{component.risk}/100</b></div><div className="risk-support"><span><strong>{component.finding_count}</strong> attached findings</span><span><strong>{Object.keys(component.sources || {}).length}</strong> contributing sources</span><span><strong>{Object.values(component.severity_counts || {}).reduce((total, count) => total + count, 0)}</strong> classified signals</span></div></section>}
     {signal && <div className="signal-summary"><span style={{ color: color(signal.source) }}>{signal.source}</span><strong style={{ color: color(signal.severity) }}>{signal.severity}</strong><em>{signal.replayed ? 'replayed evidence' : 'live evidence'}</em><p>{signal.summary}</p></div>}
     <section><h3><CircleDot /> Evidence trail</h3>{evidence.length ? evidence.map((item, index) => <div className="evidence-card" key={item.id || index}><div><span style={{ color: color(item.source) }}>{item.source}</span><strong style={{ color: color(item.severity) }}>{item.severity}</strong><time>{age(item.timestamp)}</time></div><b>{label(item.type)}</b><p>{item.summary}</p>{(item.action || item.outcome) && <small>{item.action && `Action: ${label(item.action)}`}{item.action && item.outcome && ' · '}{item.outcome && `Outcome: ${label(item.outcome)}`}</small>}</div>) : <Empty text="No evidence is attached to this resource." />}</section>
     <section><h3><Layers3 /> Context</h3><dl><div><dt>Namespace</dt><dd>{component?.namespace || 'unknown'}</dd></div><div><dt>Resource type</dt><dd>{component?.entity_type || 'unknown'}</dd></div><div><dt>Security posture</dt><dd>{component?.security_posture || signal?.severity || 'unknown'}</dd></div><div><dt>Latest evidence</dt><dd>{age(component?.latest_at || signal?.timestamp)}</dd></div></dl></section>
@@ -175,28 +217,61 @@ function DetailDrawer({ detail, data, onClose, onDetail }: { detail: Detail; dat
 export default function App() {
   const [data, setData] = useState<Overview | null>(null), [error, setError] = useState(''), [loading, setLoading] = useState(true)
   const [brief, setBrief] = useState(''), [briefing, setBriefing] = useState(false), [detail, setDetail] = useState<Detail | null>(null)
-  const load = async () => { setLoading(true); try { const response = await fetch(`${API}/overview`); if (!response.ok) throw Error(await response.text()); setData(await response.json()); setError('') } catch (caught: any) { setError(caught.message) } finally { setLoading(false) } }
-  useEffect(() => { load(); const timer = setInterval(load, 15000); return () => clearInterval(timer) }, [])
+  const [previousRisk, setPreviousRisk] = useState<number | null>(null), [, setClock] = useState(0)
+  const load = async () => { setLoading(true); try { const response = await fetch(`${API}/overview`); if (!response.ok) throw Error(await response.text()); const next: Overview = await response.json(); setData(current => { if (current) setPreviousRisk(current.fleet_risk); return next }); setError('') } catch (caught: any) { setError(caught.message) } finally { setLoading(false) } }
+  useEffect(() => { load(); const refreshTimer = setInterval(load, 15000); const clockTimer = setInterval(() => setClock(value => value + 1), 1000); return () => { clearInterval(refreshTimer); clearInterval(clockTimer) } }, [])
   const ask = async () => { setBriefing(true); try { const response = await fetch(`${API}/briefing`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"question":"What requires operator attention right now?"}' }), result = await response.json(); setBrief(result.briefing || result.detail) } finally { setBriefing(false) } }
   const componentsById = useMemo(() => new Map((data?.components || []).map(component => [component.entity_id, component])), [data])
   const selectTopology = (id: string) => { const component = componentsById.get(id); if (component) setDetail({ kind: 'component', component }) }
   const urgent = (data?.counts.critical || 0) + (data?.counts.high || 0)
   return <div className="shell">
-    <header><div className="brand"><div className="mark"><Network /></div><div><h1>SENTINEL</h1><p>OPENAI-NATIVE AUTONOMOUS OPERATIONS</p></div></div><nav className="console-nav" aria-label="Platform consoles"><ConsoleLink href={ARGUS_URL}><Shield />Argus</ConsoleLink><ConsoleLink href={PHOENIX_URL}><Zap />Phoenix</ConsoleLink><span className="console-link current"><Network />Sentinel</span></nav><div className="header-state"><i className={error ? 'bad' : ''} /><div><b>{error ? 'SOG DEGRADED' : data?.status === 'degraded' ? 'PARTIAL DATA' : 'SOG LIVE'}</b><small>{data ? `refreshed ${age(data.generated_at)}` : 'connecting'}</small></div><button onClick={load} className={loading ? 'spin' : ''} aria-label="Refresh"><RefreshCw /></button></div></header>
+    <header><div className="brand"><div className="mark"><Network /></div><div><h1>SENTINEL</h1><p>OPENAI-NATIVE · SENTINEL OPERATIONS GRAPH</p></div></div><nav className="console-nav" aria-label="Platform consoles"><ConsoleLink href={ARGUS_URL}><Shield />Argus</ConsoleLink><ConsoleLink href={PHOENIX_URL}><Zap />Phoenix</ConsoleLink><span className="console-link current"><Network />Sentinel</span></nav><div className="header-state"><i className={error ? 'bad' : ''} /><div><b title="Sentinel Operations Graph status">{error ? 'SOG DEGRADED' : data?.status === 'degraded' ? 'PARTIAL DATA' : 'SOG LIVE'}</b><small>{data ? `refreshed ${age(data.generated_at)}` : 'connecting'}</small></div><button onClick={load} className={loading ? 'spin' : ''} aria-label="Refresh"><RefreshCw /></button></div></header>
     <main>
-      <section className="hero"><div><span>UNIFIED COMMAND CENTER</span><h2>One fleet. Two specialist agents.<br /><em>One accountable decision.</em></h2><p>Sentinel combines Argus security evidence and Phoenix resilience outcomes into a shared operational picture—then shows exactly what requires attention and why.</p><div className="hero-state"><span><i className={urgent ? 'urgent' : ''} />{urgent ? `${urgent} urgent signals need review` : 'No urgent evidence in the current window'}</span><span><Clock3 />15-second live refresh</span></div></div><div className={`risk-orb ${data?.risk_level || 'stable'}`} title="Highest combined risk score among currently mapped resources"><small>HIGHEST RESOURCE RISK</small><b>{data?.fleet_risk ?? '—'}<em>/100</em></b><span>{data ? riskCopy(data.risk_level) : 'Connecting'}</span></div></section>
-      {error && <div className="error"><AlertTriangle />Sentinel cannot reach the SOG gateway. {error}</div>}
+      <section className="hero"><div><span>UNIFIED COMMAND CENTER</span><h2>One fleet. Two specialist agents.<br /><em>One accountable decision.</em></h2><p>Sentinel combines Argus security evidence and Phoenix resilience outcomes inside the <strong>Sentinel Operations Graph (SOG)</strong>—the shared, live evidence layer that explains exactly what requires attention and why.</p><div className="sog-definition"><GitBranch /><div><b>SOG</b><span>Sentinel Operations Graph</span><small>One connected model of services, dependencies, evidence, incidents, and trust.</small></div></div><div className="hero-state"><span><i className={urgent ? 'urgent' : ''} />{urgent ? `${urgent} urgent signals need review` : 'No urgent evidence in the current window'}</span><span><Clock3 />Polling the Operations Graph every 15 seconds</span><span className="streaming"><Activity />SOG evidence stream active</span></div></div><LiveRiskPanel data={data} previousRisk={previousRisk} onSelect={component => setDetail({ kind: 'component', component })} /></section>
+      {error && <div className="error"><AlertTriangle />Sentinel cannot reach the Sentinel Operations Graph (SOG) gateway. {error}</div>}
       <section className="stats"><Stat label="LIVE SIGNALS" value={data?.counts.findings || 0} sub={`${data?.counts.live || 0} observed · ${data?.counts.replayed || 0} replayed`} icon={Activity} tone="high" onClick={() => setDetail({ kind: 'metric', metric: 'signals' })} /><Stat label="URGENT EVIDENCE" value={urgent} sub={`${data?.counts.critical || 0} critical · ${data?.counts.high || 0} high`} icon={AlertTriangle} tone={urgent ? 'critical' : 'low'} onClick={() => setDetail({ kind: 'metric', metric: 'urgent' })} /><Stat label="AFFECTED RESOURCES" value={data?.counts.affected || 0} sub={`of ${data?.counts.entities || 0} mapped entities`} icon={Shield} tone="argus" onClick={() => setDetail({ kind: 'metric', metric: 'affected' })} /><Stat label="NAMESPACES" value={data?.counts.namespaces || 0} sub={`${data?.counts.edges || 0} dependency relationships`} icon={Layers3} tone="sentinel" onClick={() => setDetail({ kind: 'metric', metric: 'namespaces' })} /><Stat label="OPEN INCIDENTS" value={data?.counts.incidents || 0} sub="correlated cross-agent cases" icon={GitBranch} tone="phoenix" onClick={() => setDetail({ kind: 'metric', metric: 'incidents' })} /></section>
-      <section className="agent-grid"><SourceCard name="argus" data={data?.sources.argus} icon={Shield} /><div className="sog-card"><div><GitBranch /><span>SENTINEL OPERATIONS GRAPH</span></div><b>{data?.counts.entities || 0} entities connected by {data?.counts.edges || 0} relationships</b><p>{data?.status === 'degraded' ? `Partial services: ${(data.degraded_sources || []).join(', ')}` : 'Topology, evidence, incidents, and trust state are available.'}</p><ArrowRight /></div><SourceCard name="phoenix" data={data?.sources.phoenix} icon={Zap} /></section>
+      <section className="agent-grid"><SourceCard name="argus" data={data?.sources.argus} icon={Shield} /><SogBridge data={data} onSource={source => setDetail({ kind: 'source', source })} /><SourceCard name="phoenix" data={data?.sources.phoenix} icon={Zap} /></section>
       <section className="panel live-panel"><PanelTitle kicker="01 · LIVE OPERATIONS" title="What is happening right now" help="Newest security, resilience, and infrastructure evidence. Select a row to inspect its context and raw payload." right={<span className="live-badge"><i />{data?.timeline.length || 0} signals</span>} /><LiveSignalFeed events={data?.timeline || []} onSelect={signal => setDetail({ kind: 'signal', signal })} /></section>
       <section className="panel sankey-panel"><PanelTitle kicker="02 · EVIDENCE FLOW" title="How signals become operational work" help="Follow the evidence from its reporting system, through severity classification, to its current open or handled state." right={<span>{data?.counts.findings || 0} signals mapped</span>} /><EvidenceSankey events={data?.timeline || []} /></section>
       <section className="viz-grid"><div className="panel"><PanelTitle kicker="03 · ATTENTION QUEUE" title="What needs attention first" help="Resources ranked by combined security exposure, posture, fragility, and current evidence. Highest priority appears first." /><PriorityList items={data?.components || []} onSelect={component => setDetail({ kind: 'component', component })} /></div><div className="panel"><PanelTitle kicker="04 · BLAST RADIUS" title="Where impact can spread" help="Lines are real dependency relationships. Select a node to inspect the resource and its attached evidence." right={<span>{data?.counts.entities || 0} nodes · {data?.counts.edges || 0} edges</span>} /><TopologyGraph nodes={data?.topology.nodes || []} edges={data?.topology.edges || []} selected={detail?.kind === 'component' ? detail.component.entity_id : undefined} onSelect={selectTopology} /></div></section>
       <section className="insight-grid"><div className="panel"><PanelTitle kicker="05 · EVIDENCE QUALITY" title="Observed versus replayed" help="Synthetic evaluation is never presented as live telemetry. Severity bars show what dominates the current window." /><SignalMix data={data} /></div><div className="panel"><PanelTitle kicker="06 · FLEET COVERAGE" title="Where Sentinel has visibility" help="Entity distribution across Kubernetes namespaces. Longer bars mean more mapped services, pods, or nodes." right={<span>{data?.counts.namespaces || 0} namespaces</span>} /><NamespaceList namespaces={data?.namespaces} /></div></section>
-      <section className="lower-grid"><div className="panel"><PanelTitle kicker="07 · HUMAN GOVERNANCE" title="Why Sentinel can—or cannot—act" help="Actions earn autonomy through verified success. Surprise immediately returns control to a human." /><TrustLadder records={data?.trust || []} /></div><div className="panel intelligence"><div className="brief-head"><div><BrainCircuit /></div><div><span>OPENAI EVIDENCE BRIEFING</span><h3>Explain the current fleet posture</h3><p>Generated only from the current Sentinel Operations Graph state.</p></div><button onClick={ask} disabled={briefing}><Sparkles />{briefing ? 'Reasoning…' : brief ? 'Refresh' : 'Generate'}</button></div>{brief ? <pre>{brief}</pre> : <Empty text="Generate a concise, evidence-grounded operator briefing." />}</div></section>
+      <section className="lower-grid"><div className="panel"><PanelTitle kicker="07 · HUMAN GOVERNANCE" title="Why Sentinel can—or cannot—act" help="Actions earn autonomy through verified success. Surprise immediately returns control to a human." /><TrustLadder records={data?.trust || []} /></div><div className="panel intelligence"><div className="brief-head"><div><BrainCircuit /></div><div><span>OPENAI EVIDENCE BRIEFING</span><h3>Explain the current fleet posture</h3><p>Generated only from the current Sentinel Operations Graph state.</p></div><button onClick={ask} disabled={briefing}><Sparkles />{briefing ? 'Reasoning…' : brief ? 'Refresh' : 'Generate'}</button></div>{brief ? <MarkdownBrief content={brief} /> : <Empty text="Generate a concise, evidence-grounded operator briefing." />}</div></section>
     </main>
-    <footer><span>SENTINEL PLATFORM</span><span><Shield />ARGUS <Zap />PHOENIX <GitBranch />SOG</span><span><Timer />15s live refresh</span></footer>
+    <footer><span>SENTINEL PLATFORM</span><span><Shield />ARGUS <Zap />PHOENIX <GitBranch />SOG · SENTINEL OPERATIONS GRAPH</span><span><Timer />15s live refresh</span></footer>
     {detail && <DetailDrawer detail={detail} data={data} onClose={() => setDetail(null)} onDetail={setDetail} />}
   </div>
 }
 
 function Empty({ text }: { text: string }) { return <div className="empty"><Activity /><span>{text}</span></div> }
+
+function InlineMarkdown({ text }: { text: string }) {
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).filter(Boolean)
+  return <>{parts.map((part, index) => part.startsWith('**') && part.endsWith('**')
+    ? <strong key={index}>{part.slice(2, -2)}</strong>
+    : part.startsWith('`') && part.endsWith('`')
+      ? <code key={index}>{part.slice(1, -1)}</code>
+      : <span key={index}>{part}</span>)}</>
+}
+
+function MarkdownBrief({ content }: { content: string }) {
+  const blocks: React.ReactNode[] = []
+  const lines = content.split('\n')
+  let index = 0
+  while (index < lines.length) {
+    const line = lines[index].trim()
+    if (!line) { index += 1; continue }
+    if (line.startsWith('## ')) { blocks.push(<h4 key={index}>{line.slice(3)}</h4>); index += 1; continue }
+    if (/^\d+\.\s/.test(line)) {
+      const items: string[] = []
+      while (index < lines.length && /^\d+\.\s/.test(lines[index].trim())) { items.push(lines[index].trim().replace(/^\d+\.\s/, '')); index += 1 }
+      blocks.push(<ol key={`ol-${index}`}>{items.map((item, itemIndex) => <li key={itemIndex}><InlineMarkdown text={item} /></li>)}</ol>); continue
+    }
+    if (/^[-*]\s/.test(line)) {
+      const items: string[] = []
+      while (index < lines.length && /^[-*]\s/.test(lines[index].trim())) { items.push(lines[index].trim().replace(/^[-*]\s/, '')); index += 1 }
+      blocks.push(<ul key={`ul-${index}`}>{items.map((item, itemIndex) => <li key={itemIndex}><InlineMarkdown text={item} /></li>)}</ul>); continue
+    }
+    blocks.push(<p key={index}><InlineMarkdown text={line} /></p>); index += 1
+  }
+  return <div className="brief-markdown">{blocks}</div>
+}
