@@ -22,7 +22,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 SEVERITY_WEIGHT = {"critical": 100, "high": 72, "medium": 45, "med": 45, "low": 18, "info": 5}
 POSTURE_WEIGHT = {"critical": 100, "high-risk": 78, "medium-risk": 48, "low-risk": 20, "clean": 0}
-OVERVIEW_CACHE_SECONDS = 12
+OVERVIEW_CACHE_SECONDS = 30
 _overview_cache: tuple[float, dict] | None = None
 _overview_lock = asyncio.Lock()
 
@@ -193,7 +193,7 @@ async def build_overview() -> dict:
     SOG's current findings API is entity-scoped, so one aggregation traverses the
     topology. A short cache prevents the dashboard refresh and briefing request from
     triggering duplicate N+1 traversals while keeping freshness inside the UI's
-    fifteen-second refresh interval.
+    refresh cadence while a new snapshot is collected in the background.
     """
     global _overview_cache
     now = time.monotonic()
