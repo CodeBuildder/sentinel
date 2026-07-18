@@ -2,12 +2,17 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from main import _risk, _source, build_overview
+from main import _correlated_incidents, _risk, _source, _summary, build_overview
 
 
 def test_source_normalizes_agents():
     assert _source({"source": "argus-agent"}) == "argus"
     assert _source({"source": "phoenix"}) == "phoenix"
+
+
+def test_summary_normalizes_structured_argus_assessment():
+    finding = {"payload": {"assessment": {"assessment": "critical shell evidence", "confidence": 0.97}}}
+    assert _summary(finding) == "critical shell evidence"
 
 
 def test_risk_is_transparent_and_bounded():
@@ -18,6 +23,18 @@ def test_risk_is_transparent_and_bounded():
     assert level in {"stable", "guarded", "high", "critical"}
     assert components[0]["finding_count"] == 1
     assert fleet == components[0]["risk"]
+
+
+def test_incident_requires_explicit_cross_agent_correlation():
+    argus = {"id": "a", "source": "argus", "severity": "critical", "timestamp": "2026-07-18T00:00:00Z", "correlation_id": "case-1", "summary": "detected", "provenance": "observed"}
+    phoenix = {"id": "p", "source": "phoenix", "severity": "high", "timestamp": "2026-07-18T00:00:05Z", "correlation_id": "case-1", "summary": "recovered", "outcome": "verified", "provenance": "live_chaos"}
+    standalone = {"id": "solo", "source": "phoenix", "severity": "high", "timestamp": "2026-07-18T00:00:06Z", "correlation_id": "case-2"}
+    incidents = _correlated_incidents([standalone, phoenix, argus])
+    assert len(incidents) == 1
+    assert incidents[0]["correlation_id"] == "case-1"
+    assert incidents[0]["status"] == "resolved"
+    assert incidents[0]["sources"] == ["argus", "phoenix"]
+    assert [item["id"] for item in incidents[0]["timeline"]] == ["a", "p"]
 
 
 @pytest.mark.asyncio
