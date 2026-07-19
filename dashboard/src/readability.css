@@ -294,3 +294,126 @@
     min-height: 100%;
   }
 }
+
+.incident-report {
+  margin: 18px 0 22px;
+  padding: 17px;
+  border: 1px solid #b68cff45;
+  border-radius: 11px;
+  background: linear-gradient(145deg, #b68cff0b, #0a1421 48%, #09111c);
+}
+
+.incident-report.missing {
+  border-style: dashed;
+  color: #91a1b6;
+}
+
+.report-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.report-title > div > span,
+.report-grid article > span,
+.report-next span {
+  color: #8f7dbd;
+  font: 700 8px JetBrains Mono, monospace;
+  letter-spacing: .8px;
+}
+
+.report-title h3 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 6px;
+  color: #edf2f9;
+  font-size: 14px;
+}
+
+.report-title h3 svg {
+  width: 15px;
+  color: #55e6a5;
+}
+
+.report-executive {
+  margin: 14px 0;
+  padding: 13px 14px;
+  border-left: 3px solid #b68cff;
+  border-radius: 0 8px 8px 0;
+  background: #b68cff0c;
+  color: #d5ddea;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.report-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.report-grid article {
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid #27384f;
+  border-left: 2px solid #b68cff;
+  border-radius: 8px;
+  background: #09131f;
+}
+
+.report-grid article.argus { border-left-color: #45d9ff; }
+.report-grid article.phoenix,
+.report-grid article.low { border-left-color: #55e6a5; }
+.report-grid article.high { border-left-color: #ffad55; }
+.report-grid article.medium,
+.report-grid article.human { border-left-color: #ffd166; }
+
+.report-grid article p {
+  margin-top: 6px;
+  color: #b7c3d2;
+  font-size: 10px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.report-next {
+  display: flex;
+  gap: 10px;
+  margin-top: 9px;
+  padding: 12px;
+  border: 1px solid #55e6a53b;
+  border-radius: 8px;
+  background: #55e6a508;
+}
+
+.report-next > svg {
+  width: 17px;
+  flex: 0 0 auto;
+  color: #55e6a5;
+}
+
+.report-next p {
+  margin-top: 5px;
+  color: #c2ccda;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.report-next small {
+  display: block;
+  margin-top: 6px;
+  color: #71849d;
+  font: 600 8px JetBrains Mono, monospace;
+}
+
+@media (max-width: 640px) {
+  .report-title {
+    flex-direction: column;
+  }
+
+  .report-grid {
+    grid-template-columns: 1fr;
+  }
+}

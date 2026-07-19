@@ -27,6 +27,7 @@ type Incident = {
   started_at?: string; updated_at?: string; sources?: string[]; evidence_count?: number
   provenance?: string[]; timeline?: Timeline[]
   proof?: { lifecycle?: ProofStage[]; metrics?: Record<string, number | string>; evidence_source?: string; experiment_id?: string }
+  report?: { executive_summary?: string; detection?: string; affected_resource?: string; impact?: string; root_cause?: string; decision?: string; governance?: string; recovery?: string; verification?: string; operator_next_step?: string; evidence_source?: string }
 }
 type ProofStage = { stage: string; timestamp?: string; source?: string; evidence?: string; status?: string }
 type Overview = {
@@ -146,6 +147,22 @@ function LiveSignalFeed({ events, onSelect }: { events: Timeline[]; onSelect: (e
 }
 
 const proofStages = ['healthy', 'fault_injected', 'detection', 'decision', 'human_approval', 'recovery', 'verification']
+function IncidentReport({ incident }: { incident: Incident }) {
+  const report = incident.report
+  if (!report) return <section className="incident-report missing"><h3><AlertTriangle /> Incident report unavailable</h3><p>This correlation predates structured reporting. Supporting evidence remains available below.</p></section>
+  const sections = [
+    { label: 'What happened', value: report.detection, tone: 'argus' },
+    { label: 'Affected resource', value: report.affected_resource, tone: 'sentinel' },
+    { label: 'Impact assessment', value: report.impact, tone: 'high' },
+    { label: 'Root cause', value: report.root_cause, tone: 'medium' },
+    { label: 'Decision + containment', value: report.decision, tone: 'sentinel' },
+    { label: 'Human governance', value: report.governance, tone: 'human' },
+    { label: 'Recovery performed', value: report.recovery, tone: 'phoenix' },
+    { label: 'Verification result', value: report.verification, tone: 'low' },
+  ]
+  return <section className="incident-report"><div className="report-title"><div><span>OPERATOR-READY REPORT</span><h3><CheckCircle2 /> Incident understood and recovery accounted for</h3></div><em className={`provenance ${incident.provenance?.includes('live_chaos') ? 'live_chaos' : incident.provenance?.includes('simulator') ? 'simulator' : incident.provenance?.includes('replayed') ? 'replayed' : 'observed'}`}>{(incident.provenance || ['observed']).map(label).join(' + ')}</em></div><p className="report-executive">{report.executive_summary}</p><div className="report-grid">{sections.map(section => <article key={section.label} className={section.tone}><span>{section.label}</span><p>{section.value || 'Not supplied by the available evidence'}</p></article>)}</div><div className="report-next"><UserCheck /><div><span>OPERATOR FOLLOW-UP</span><p>{report.operator_next_step}</p><small>Evidence source · {report.evidence_source || 'not recorded'}</small></div></div></section>
+}
+
 function ResilienceProof({ incident, onSignal }: { incident: Incident; onSignal: (signal: Timeline) => void }) {
   const supplied = new Map((incident.proof?.lifecycle || []).map(item => [item.stage, item]))
   const start = incident.proof?.lifecycle?.find(item => item.timestamp)?.timestamp
@@ -264,7 +281,7 @@ function DetailDrawer({ detail, data, onClose, onDetail }: { detail: Detail; dat
   }
   if (detail.kind === 'incident') {
     const incident = detail.incident
-    return <div className="drawer-wrap" role="dialog" aria-modal="true"><button className="drawer-backdrop" onClick={onClose} aria-label="Close details" /><aside className="drawer incident-drawer"><div className="drawer-head"><div><span>CORRELATED INCIDENT</span><h2>{incident.title || incident.incident_id}</h2><p>{incident.correlation_id ? `Correlation ID · ${incident.correlation_id}` : incident.incident_id}</p></div><button onClick={onClose}><X /></button></div><div className="incident-facts"><span><small>STATUS</small><b>{incident.status || 'open'}</b></span><span><small>SEVERITY</small><b style={{ color: color(incident.severity || 'info') }}>{incident.severity || 'info'}</b></span><span><small>SOURCES</small><b>{(incident.sources || []).join(' + ') || 'unknown'}</b></span><span><small>EVIDENCE</small><b>{incident.evidence_count || incident.timeline?.length || 0}</b></span></div><ResilienceProof incident={incident} onSignal={signal => onDetail({ kind: 'signal', signal })} /></aside></div>
+    return <div className="drawer-wrap" role="dialog" aria-modal="true"><button className="drawer-backdrop" onClick={onClose} aria-label="Close details" /><aside className="drawer incident-drawer"><div className="drawer-head"><div><span>CORRELATED INCIDENT</span><h2>{incident.title || incident.incident_id}</h2><p>{incident.correlation_id ? `Correlation ID · ${incident.correlation_id}` : incident.incident_id}</p></div><button onClick={onClose}><X /></button></div><div className="incident-facts"><span><small>STATUS</small><b>{incident.status || 'open'}</b></span><span><small>SEVERITY</small><b style={{ color: color(incident.severity || 'info') }}>{incident.severity || 'info'}</b></span><span><small>SOURCES</small><b>{(incident.sources || []).join(' + ') || 'unknown'}</b></span><span><small>EVIDENCE</small><b>{incident.evidence_count || incident.timeline?.length || 0}</b></span></div><IncidentReport incident={incident} /><ResilienceProof incident={incident} onSignal={signal => onDetail({ kind: 'signal', signal })} /></aside></div>
   }
   const signal = detail.kind === 'signal' ? detail.signal : undefined, component = detail.kind === 'component' ? detail.component : undefined
   const evidence = component?.evidence || (signal ? [signal] : [])
