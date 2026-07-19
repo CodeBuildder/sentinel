@@ -37,6 +37,15 @@ def test_incident_requires_explicit_cross_agent_correlation():
     assert [item["id"] for item in incidents[0]["timeline"]] == ["a", "p"]
 
 
+def test_incident_exposes_only_supplied_proof_stages_and_metrics():
+    argus = {"id": "a", "source": "argus", "severity": "high", "timestamp": "2026-07-18T00:00:01Z", "correlation_id": "proof-1", "provenance": "observed"}
+    phoenix = {"id": "p", "source": "phoenix", "severity": "high", "timestamp": "2026-07-18T00:00:07Z", "correlation_id": "proof-1", "provenance": "live_chaos", "outcome": "verified_recovery", "payload": {"scenario_id": "chaos-1", "evidence_source": "Falco + HTTP probe", "metrics": {"detection_ms": 1200, "recovery_ms": 4300, "availability_percent": 99.8}, "lifecycle": [{"stage": "healthy", "timestamp": "2026-07-18T00:00:00Z", "status": "verified"}, {"stage": "verification", "timestamp": "2026-07-18T00:00:07Z", "status": "verified"}]}}
+    incident = _correlated_incidents([argus, phoenix])[0]
+    assert [item["stage"] for item in incident["proof"]["lifecycle"]] == ["healthy", "verification"]
+    assert incident["proof"]["metrics"]["availability_percent"] == 99.8
+    assert incident["proof"]["experiment_id"] == "chaos-1"
+
+
 @pytest.mark.asyncio
 async def test_overview_aggregates_sources():
     async def fake_get(path, params=None):
