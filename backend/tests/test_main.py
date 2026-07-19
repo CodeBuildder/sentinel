@@ -36,6 +36,10 @@ def test_incident_requires_explicit_cross_agent_correlation():
     assert incidents[0]["status"] == "resolved"
     assert incidents[0]["sources"] == ["argus", "phoenix"]
     assert [item["id"] for item in incidents[0]["timeline"]] == ["a", "p"]
+    assert incidents[0]["report"]["detection"] == "detected"
+    assert incidents[0]["report"]["recovery"] == "recovered"
+    assert incidents[0]["report"]["root_cause"] == "Not established by the supplied evidence"
+    assert "no wider impact is claimed" in incidents[0]["report"]["impact"]
 
 
 def test_incident_exposes_only_supplied_proof_stages_and_metrics():
@@ -45,6 +49,8 @@ def test_incident_exposes_only_supplied_proof_stages_and_metrics():
     assert [item["stage"] for item in incident["proof"]["lifecycle"]] == ["healthy", "verification"]
     assert incident["proof"]["metrics"]["availability_percent"] == 99.8
     assert incident["proof"]["experiment_id"] == "chaos-1"
+    assert incident["report"]["verification"] == "Verification evidence was not supplied"
+    assert incident["report"]["evidence_source"] == "Falco + HTTP probe"
 
 
 @pytest.mark.asyncio

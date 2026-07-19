@@ -166,8 +166,10 @@ def _correlated_incidents(timeline: list[dict]) -> list[dict]:
         proof_record = next((item for item in reversed(ordered)
                              if isinstance(item.get("payload", {}).get("lifecycle"), list)), None)
         proof = None
+        proof_payload = {}
         if proof_record:
             payload = proof_record.get("payload", {})
+            proof_payload = payload
             proof = {
                 "lifecycle": payload.get("lifecycle", []),
                 "metrics": payload.get("metrics", {}),
@@ -175,6 +177,38 @@ def _correlated_incidents(timeline: list[dict]) -> list[dict]:
                 "experiment_id": payload.get("scenario_id"),
             }
         entity = next((item.get("entity_name") for item in ordered if item.get("entity_name")), None)
+        entity_id = next((item.get("entity_id") for item in ordered if item.get("entity_id")), None)
+        argus_record = next((item for item in ordered if _source(item) == "argus"), {})
+        phoenix_record = next((item for item in reversed(ordered) if _source(item) == "phoenix"), {})
+        argus_payload = argus_record.get("payload", {})
+        phoenix_payload = phoenix_record.get("payload", {})
+        lifecycle = proof_payload.get("lifecycle", [])
+
+        def stage_evidence(stage: str, fallback: str) -> str:
+            record = next((item for item in lifecycle if item.get("stage") == stage), None)
+            return str(record.get("evidence")) if record and record.get("evidence") else fallback
+
+        detection = str(argus_record.get("summary") or _summary(argus_record) or "Detection detail not supplied")
+        recovery = str(phoenix_record.get("summary") or _summary(phoenix_record) or "Recovery detail not supplied")
+        resource = str(entity or entity_id or "Unmapped resource")
+        root_cause = (argus_payload.get("root_cause") or argus_payload.get("causal_chain")
+                      or phoenix_payload.get("root_cause") or "Not established by the supplied evidence")
+        report = {
+            "executive_summary": f"{detection.rstrip('.')}. Phoenix reported: {recovery.rstrip('.')}.",
+            "detection": detection,
+            "affected_resource": resource,
+            "impact": str(argus_payload.get("impact") or
+                          f"{severity.capitalize()} evidence was attached to {resource}; no wider impact is claimed without supporting evidence."),
+            "root_cause": str(root_cause),
+            "decision": stage_evidence("decision", "No explicit decision record was supplied"),
+            "governance": stage_evidence("human_approval", "Approval evidence was not supplied"),
+            "recovery": stage_evidence("recovery", recovery),
+            "verification": stage_evidence("verification", "Verification evidence was not supplied"),
+            "operator_next_step": str(phoenix_payload.get("operator_next_step") or
+                                      "Review the supporting evidence and keep the resource under observation."),
+            "evidence_source": str(proof_payload.get("evidence_source") or
+                                   " + ".join(sorted({str(item.get("provenance") or "observed") for item in ordered}))),
+        }
         incidents.append({
             "incident_id": f"corr:{correlation_id}", "correlation_id": correlation_id,
             "title": f"Argus → Phoenix lifecycle{f' for {entity}' if entity else ''}",
@@ -182,7 +216,7 @@ def _correlated_incidents(timeline: list[dict]) -> list[dict]:
             "started_at": ordered[0].get("timestamp"), "updated_at": ordered[-1].get("timestamp"),
             "sources": sorted(sources), "evidence_count": len(ordered), "timeline": ordered,
             "provenance": sorted({str(item.get("provenance") or "observed") for item in ordered}),
-            "proof": proof,
+            "proof": proof, "report": report,
         })
     return sorted(incidents, key=lambda item: str(item.get("updated_at") or ""), reverse=True)
 

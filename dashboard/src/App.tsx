@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Activity, AlertTriangle, ArrowRight, BrainCircuit, CheckCircle2, ChevronRight,
+  Activity, AlertTriangle, ArrowRight, BookOpen, BrainCircuit, CheckCircle2, ChevronRight,
   CircleDot, Clock3, GitBranch, Layers3, Network, RefreshCw, Shield, Sparkles,
   Timer, UserCheck, X, Zap,
 } from 'lucide-react'
@@ -27,6 +27,7 @@ type Incident = {
   started_at?: string; updated_at?: string; sources?: string[]; evidence_count?: number
   provenance?: string[]; timeline?: Timeline[]
   proof?: { lifecycle?: ProofStage[]; metrics?: Record<string, number | string>; evidence_source?: string; experiment_id?: string }
+  report?: { executive_summary?: string; detection?: string; affected_resource?: string; impact?: string; root_cause?: string; decision?: string; governance?: string; recovery?: string; verification?: string; operator_next_step?: string; evidence_source?: string }
 }
 type ProofStage = { stage: string; timestamp?: string; source?: string; evidence?: string; status?: string }
 type Overview = {
@@ -146,6 +147,22 @@ function LiveSignalFeed({ events, onSelect }: { events: Timeline[]; onSelect: (e
 }
 
 const proofStages = ['healthy', 'fault_injected', 'detection', 'decision', 'human_approval', 'recovery', 'verification']
+function IncidentReport({ incident }: { incident: Incident }) {
+  const report = incident.report
+  if (!report) return <section className="incident-report missing"><h3><AlertTriangle /> Incident report unavailable</h3><p>This correlation predates structured reporting. Supporting evidence remains available below.</p></section>
+  const sections = [
+    { label: 'What happened', value: report.detection, tone: 'argus' },
+    { label: 'Affected resource', value: report.affected_resource, tone: 'sentinel' },
+    { label: 'Impact assessment', value: report.impact, tone: 'high' },
+    { label: 'Root cause', value: report.root_cause, tone: 'medium' },
+    { label: 'Decision + containment', value: report.decision, tone: 'sentinel' },
+    { label: 'Human governance', value: report.governance, tone: 'human' },
+    { label: 'Recovery performed', value: report.recovery, tone: 'phoenix' },
+    { label: 'Verification result', value: report.verification, tone: 'low' },
+  ]
+  return <section className="incident-report"><div className="report-title"><div><span>OPERATOR-READY REPORT</span><h3><CheckCircle2 /> Incident understood and recovery accounted for</h3></div><em className={`provenance ${incident.provenance?.includes('live_chaos') ? 'live_chaos' : incident.provenance?.includes('simulator') ? 'simulator' : incident.provenance?.includes('replayed') ? 'replayed' : 'observed'}`}>{(incident.provenance || ['observed']).map(label).join(' + ')}</em></div><p className="report-executive">{report.executive_summary}</p><div className="report-grid">{sections.map(section => <article key={section.label} className={section.tone}><span>{section.label}</span><p>{section.value || 'Not supplied by the available evidence'}</p></article>)}</div><div className="report-next"><UserCheck /><div><span>OPERATOR FOLLOW-UP</span><p>{report.operator_next_step}</p><small>Evidence source · {report.evidence_source || 'not recorded'}</small></div></div></section>
+}
+
 function ResilienceProof({ incident, onSignal }: { incident: Incident; onSignal: (signal: Timeline) => void }) {
   const supplied = new Map((incident.proof?.lifecycle || []).map(item => [item.stage, item]))
   const start = incident.proof?.lifecycle?.find(item => item.timestamp)?.timestamp
@@ -222,6 +239,23 @@ function ReadinessPanel({ readiness, expanded, onToggle, onRefresh }: { readines
   </section>
 }
 
+function HowItWorks({ onClose }: { onClose: () => void }) {
+  useEffect(() => { const close = (event: KeyboardEvent) => event.key === 'Escape' && onClose(); document.addEventListener('keydown', close); return () => document.removeEventListener('keydown', close) }, [onClose])
+  const steps = [
+    { number: '01', name: 'ARGUS', role: 'Detect + contain', icon: Shield, tone: 'argus', text: 'Kyverno guards admission while eBPF, Falco, and Cilium watch the kernel, runtime, and network—stopping threats close to where they start.', output: 'Early containment + evidence' },
+    { number: '02', name: 'SOG', role: 'Connect', icon: GitBranch, tone: 'sentinel', text: 'The Sentinel Operations Graph connects services, dependencies, evidence, incidents, and trust.', output: 'Shared operational truth' },
+    { number: '03', name: 'SENTINEL + OPENAI', role: 'Decide', icon: BrainCircuit, tone: 'sentinel', text: 'Sentinel explains what changed, ranks risk, and chooses what requires attention.', output: 'Evidence-grounded decision' },
+    { number: '04', name: 'HUMAN GOVERNANCE', role: 'Authorize', icon: UserCheck, tone: 'human', text: 'Low-risk, proven actions can run autonomously. High-impact actions wait for explicit approval.', output: 'Accountable control' },
+    { number: '05', name: 'PHOENIX', role: 'Break + recover', icon: Zap, tone: 'phoenix', text: 'Phoenix injects bounded faults before customers find them, recovers the service, and verifies that health is actually restored.', output: 'Proven resilience before impact' },
+  ]
+  return <div className="how-wrap" role="dialog" aria-modal="true" aria-labelledby="how-title"><button className="how-backdrop" onClick={onClose} aria-label="Close How it works" /><article className="how-modal"><header><div><span>THE LAYERED AUTONOMOUS DEFENSE</span><h2 id="how-title">Find it at the earliest layer. Prove the recovery.</h2><p>Admission → kernel/runtime → L3/L4/L7 network enforcement → service resilience—all coordinated by Sentinel and the SOG.</p></div><button onClick={onClose} aria-label="Close"><X /></button></header>
+    <div className="how-flow">{steps.map(({ icon: Icon, ...step }, index) => <div className={`how-step ${step.tone}`} key={step.name}><div className="how-step-top"><span>{step.number}</span><i><Icon /></i></div><small>{step.role}</small><h3>{step.name}</h3><p>{step.text}</p><strong><CheckCircle2 />{step.output}</strong>{index < steps.length - 1 && <ArrowRight className="how-arrow" />}</div>)}</div>
+    <div className="how-narration"><div><BookOpen /><span><b>Say this to a judge</b><small>≈ 25 seconds at a natural pace</small></span></div><blockquote>“Argus watches admission, the kernel, runtime, and network to stop threats close to where they start. Phoenix tests bounded failures before customers find them. The SOG connects both, and Sentinel uses OpenAI to explain what matters next. Safe recovery can run automatically; risky action waits for a human. Nothing is called fixed until recovery is verified.”</blockquote></div>
+    <div className="how-truth"><div><b>AUTONOMOUS</b><span>Detection · correlation · diagnosis · bounded recovery · verification</span></div><div><b>HUMAN-GOVERNED</b><span>High blast radius · ambiguous evidence · destructive or unproven actions</span></div><div className="how-provenance"><b>EVERY RECORD SAYS WHAT IT IS</b><span><em className="observed">LIVE OBSERVED</em><em className="live_chaos">LIVE CHAOS MESH</em><em className="simulator">SYNTHETIC SIMULATOR</em><em className="replayed">REPLAYED EVIDENCE</em></span></div></div>
+    <footer><span><GitBranch />SOG means Sentinel Operations Graph</span><strong>Four protection layers. One governed evidence loop. Recovery must be proven.</strong><button onClick={onClose}>Enter command center <ArrowRight /></button></footer>
+  </article></div>
+}
+
 function MetricDetail({ metric, data, onSignal, onComponent, onIncident }: { metric: MetricKind; data: Overview | null; onSignal: (signal: Timeline) => void; onComponent: (component: Component) => void; onIncident: (incident: Incident) => void }) {
   const definitions: Record<MetricKind, { title: string; description: string }> = {
     signals: { title: 'Evidence records', description: 'Every finding in the current Sentinel Operations Graph window, separated by exact provenance.' },
@@ -247,7 +281,7 @@ function DetailDrawer({ detail, data, onClose, onDetail }: { detail: Detail; dat
   }
   if (detail.kind === 'incident') {
     const incident = detail.incident
-    return <div className="drawer-wrap" role="dialog" aria-modal="true"><button className="drawer-backdrop" onClick={onClose} aria-label="Close details" /><aside className="drawer incident-drawer"><div className="drawer-head"><div><span>CORRELATED INCIDENT</span><h2>{incident.title || incident.incident_id}</h2><p>{incident.correlation_id ? `Correlation ID · ${incident.correlation_id}` : incident.incident_id}</p></div><button onClick={onClose}><X /></button></div><div className="incident-facts"><span><small>STATUS</small><b>{incident.status || 'open'}</b></span><span><small>SEVERITY</small><b style={{ color: color(incident.severity || 'info') }}>{incident.severity || 'info'}</b></span><span><small>SOURCES</small><b>{(incident.sources || []).join(' + ') || 'unknown'}</b></span><span><small>EVIDENCE</small><b>{incident.evidence_count || incident.timeline?.length || 0}</b></span></div><ResilienceProof incident={incident} onSignal={signal => onDetail({ kind: 'signal', signal })} /></aside></div>
+    return <div className="drawer-wrap" role="dialog" aria-modal="true"><button className="drawer-backdrop" onClick={onClose} aria-label="Close details" /><aside className="drawer incident-drawer"><div className="drawer-head"><div><span>CORRELATED INCIDENT</span><h2>{incident.title || incident.incident_id}</h2><p>{incident.correlation_id ? `Correlation ID · ${incident.correlation_id}` : incident.incident_id}</p></div><button onClick={onClose}><X /></button></div><div className="incident-facts"><span><small>STATUS</small><b>{incident.status || 'open'}</b></span><span><small>SEVERITY</small><b style={{ color: color(incident.severity || 'info') }}>{incident.severity || 'info'}</b></span><span><small>SOURCES</small><b>{(incident.sources || []).join(' + ') || 'unknown'}</b></span><span><small>EVIDENCE</small><b>{incident.evidence_count || incident.timeline?.length || 0}</b></span></div><IncidentReport incident={incident} /><ResilienceProof incident={incident} onSignal={signal => onDetail({ kind: 'signal', signal })} /></aside></div>
   }
   const signal = detail.kind === 'signal' ? detail.signal : undefined, component = detail.kind === 'component' ? detail.component : undefined
   const evidence = component?.evidence || (signal ? [signal] : [])
@@ -266,6 +300,7 @@ export default function App() {
   const [brief, setBrief] = useState(''), [briefing, setBriefing] = useState(false), [detail, setDetail] = useState<Detail | null>(null)
   const [previousRisk, setPreviousRisk] = useState<number | null>(null), [, setClock] = useState(0)
   const [readiness, setReadiness] = useState<Readiness | null>(null), [showReadiness, setShowReadiness] = useState(true)
+  const [showHow, setShowHow] = useState(false)
   const load = async () => { setLoading(true); try { const response = await fetch(`${API}/overview`); if (!response.ok) throw Error(await response.text()); const next: Overview = await response.json(); setData(current => { if (current) setPreviousRisk(current.fleet_risk); return next }); setError('') } catch (caught: any) { setError(caught.message) } finally { setLoading(false) } }
   const loadReadiness = async () => { try { const response = await fetch(`${API}/readiness`); if (!response.ok) throw Error(await response.text()); setReadiness(await response.json()) } catch { setReadiness(null) } }
   useEffect(() => { load(); const refreshTimer = setInterval(load, 15000); const clockTimer = setInterval(() => setClock(value => value + 1), 1000); return () => { clearInterval(refreshTimer); clearInterval(clockTimer) } }, [])
@@ -275,14 +310,14 @@ export default function App() {
   const selectTopology = (id: string) => { const component = componentsById.get(id); if (component) setDetail({ kind: 'component', component }) }
   const urgent = (data?.counts.critical || 0) + (data?.counts.high || 0)
   return <div className="shell">
-    <header><div className="brand"><div className="mark"><Network /></div><div><h1>SENTINEL</h1><p>OPENAI-NATIVE · SENTINEL OPERATIONS GRAPH</p></div></div><nav className="console-nav" aria-label="Platform consoles"><ConsoleLink href={ARGUS_URL}><Shield />Argus</ConsoleLink><ConsoleLink href={PHOENIX_URL}><Zap />Phoenix</ConsoleLink><span className="console-link current"><Network />Sentinel</span></nav><div className="header-state"><i className={error ? 'bad' : ''} /><div><b title="Sentinel Operations Graph status">{error ? 'SOG DEGRADED' : data?.status === 'degraded' ? 'PARTIAL DATA' : 'SOG LIVE'}</b><small>{data ? `refreshed ${age(data.generated_at)}` : 'connecting'}</small></div><button onClick={load} className={loading ? 'spin' : ''} aria-label="Refresh"><RefreshCw /></button></div></header>
+    <header><div className="brand"><div className="mark"><Network /></div><div><h1>SENTINEL</h1><p>OPENAI-NATIVE · SENTINEL OPERATIONS GRAPH</p></div></div><nav className="console-nav" aria-label="Platform consoles"><ConsoleLink href={ARGUS_URL}><Shield />Argus</ConsoleLink><ConsoleLink href={PHOENIX_URL}><Zap />Phoenix</ConsoleLink><span className="console-link current"><Network />Sentinel</span><button className="console-link how-link" onClick={() => setShowHow(true)}><BookOpen />How it works</button></nav><div className="header-state"><i className={error ? 'bad' : ''} /><div><b title="Sentinel Operations Graph status">{error ? 'SOG DEGRADED' : data?.status === 'degraded' ? 'PARTIAL DATA' : 'SOG LIVE'}</b><small>{data ? `refreshed ${age(data.generated_at)}` : 'connecting'}</small></div><button onClick={load} className={loading ? 'spin' : ''} aria-label="Refresh"><RefreshCw /></button></div></header>
     <main>
       <section className="hero"><div><span>UNIFIED COMMAND CENTER</span><h2>One fleet. Two specialist agents.<br /><em>One accountable decision.</em></h2><p>Sentinel combines Argus security evidence and Phoenix resilience outcomes inside the <strong>Sentinel Operations Graph (SOG)</strong>—the shared, live evidence layer that explains exactly what requires attention and why.</p><div className="sog-definition"><GitBranch /><div><b>SOG</b><span>Sentinel Operations Graph</span><small>One connected model of services, dependencies, evidence, incidents, and trust.</small></div></div><div className="hero-state"><span><i className={urgent ? 'urgent' : ''} />{urgent ? `${urgent} urgent signals need review` : 'No urgent evidence in the current window'}</span><span><Clock3 />Polling the Operations Graph every 15 seconds</span><span className="streaming"><Activity />SOG evidence stream active</span></div></div><LiveRiskPanel data={data} previousRisk={previousRisk} onSelect={component => setDetail({ kind: 'component', component })} /></section>
       {error && <div className="error"><AlertTriangle />Sentinel cannot reach the Sentinel Operations Graph (SOG) gateway. {error}</div>}
       <ReadinessPanel readiness={readiness} expanded={showReadiness} onToggle={() => setShowReadiness(value => !value)} onRefresh={loadReadiness} />
       <section className="stats"><Stat label="EVIDENCE RECORDS" value={data?.counts.findings || 0} sub={`${data?.counts.live || 0} genuinely live · ${(data?.counts.simulator || 0) + (data?.counts.replayed || 0)} synthetic/replayed`} icon={Activity} tone="high" onClick={() => setDetail({ kind: 'metric', metric: 'signals' })} /><Stat label="URGENT EVIDENCE" value={urgent} sub={`${data?.counts.critical || 0} critical · ${data?.counts.high || 0} high`} icon={AlertTriangle} tone={urgent ? 'critical' : 'low'} onClick={() => setDetail({ kind: 'metric', metric: 'urgent' })} /><Stat label="AFFECTED RESOURCES" value={data?.counts.affected || 0} sub={`of ${data?.counts.entities || 0} mapped entities`} icon={Shield} tone="argus" onClick={() => setDetail({ kind: 'metric', metric: 'affected' })} /><Stat label="NAMESPACES" value={data?.counts.namespaces || 0} sub={`${data?.counts.edges || 0} dependency relationships`} icon={Layers3} tone="sentinel" onClick={() => setDetail({ kind: 'metric', metric: 'namespaces' })} /><Stat label="OPEN INCIDENTS" value={data?.counts.incidents || 0} sub="correlated cross-agent cases" icon={GitBranch} tone="phoenix" onClick={() => setDetail({ kind: 'metric', metric: 'incidents' })} /></section>
       <section className="agent-grid"><SourceCard name="argus" data={data?.sources.argus} icon={Shield} /><SogBridge data={data} onSource={source => setDetail({ kind: 'source', source })} /><SourceCard name="phoenix" data={data?.sources.phoenix} icon={Zap} /></section>
-      <section className="panel live-panel"><PanelTitle kicker="01 · OPERATIONS EVIDENCE" title="What the system currently knows" help="Newest observed, live-chaos, simulator, and replay records. Select a row to inspect its provenance and raw payload." right={<span className="live-badge"><i />{data?.timeline.length || 0} records</span>} /><LiveSignalFeed events={data?.timeline || []} onSelect={signal => setDetail({ kind: 'signal', signal })} /></section>
+      <section className="panel live-panel"><PanelTitle kicker="01 · OPERATIONS EVIDENCE" title="What the system currently knows" help="Newest observed, live-chaos, simulator, and replay records. Select a row to inspect its provenance and raw payload." right={<div className="evidence-actions"><span className="live-badge"><i />{data?.timeline.length || 0} records</span><button className="incident-entry" onClick={() => setDetail({ kind: 'metric', metric: 'incidents' })} aria-label={`Open ${data?.counts.incidents || 0} correlated incidents`}><GitBranch /><span><b>{data?.counts.incidents || 0}</b> open incidents</span><ChevronRight /></button></div>} /><LiveSignalFeed events={data?.timeline || []} onSelect={signal => setDetail({ kind: 'signal', signal })} /></section>
       <section className="panel sankey-panel"><PanelTitle kicker="02 · EVIDENCE FLOW" title="How signals become operational work" help="Follow the evidence from its reporting system, through severity classification, to its current open or handled state." right={<span>{data?.counts.findings || 0} signals mapped</span>} /><EvidenceSankey events={data?.timeline || []} /></section>
       <section className="viz-grid"><div className="panel"><PanelTitle kicker="03 · ATTENTION QUEUE" title="What needs attention first" help="Resources ranked by combined security exposure, posture, fragility, and current evidence. Highest priority appears first." /><PriorityList items={data?.components || []} onSelect={component => setDetail({ kind: 'component', component })} /></div><div className="panel"><PanelTitle kicker="04 · BLAST RADIUS" title="Where impact can spread" help="Lines are real dependency relationships. Select a node to inspect the resource and its attached evidence." right={<span>{data?.counts.entities || 0} nodes · {data?.counts.edges || 0} edges</span>} /><TopologyGraph nodes={data?.topology.nodes || []} edges={data?.topology.edges || []} selected={detail?.kind === 'component' ? detail.component.entity_id : undefined} onSelect={selectTopology} /></div></section>
       <section className="insight-grid"><div className="panel"><PanelTitle kicker="05 · EVIDENCE QUALITY" title="Evidence provenance" help="Observed, live-chaos, simulator, and replayed records remain visibly distinct. Severity bars show what dominates the current window." /><SignalMix data={data} /></div><div className="panel"><PanelTitle kicker="06 · FLEET COVERAGE" title="Where Sentinel has visibility" help="Entity distribution across Kubernetes namespaces. Longer bars mean more mapped services, pods, or nodes." right={<span>{data?.counts.namespaces || 0} namespaces</span>} /><NamespaceList namespaces={data?.namespaces} /></div></section>
@@ -290,6 +325,7 @@ export default function App() {
     </main>
     <footer><span>SENTINEL PLATFORM</span><span><Shield />ARGUS <Zap />PHOENIX <GitBranch />SOG · SENTINEL OPERATIONS GRAPH</span><span><Timer />15s live refresh</span></footer>
     {detail && <DetailDrawer detail={detail} data={data} onClose={() => setDetail(null)} onDetail={setDetail} />}
+    {showHow && <HowItWorks onClose={() => setShowHow(false)} />}
   </div>
 }
 
