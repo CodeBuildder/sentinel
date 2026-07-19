@@ -248,10 +248,49 @@
   font-size: 13px;
 }
 
+/* The app header is globally sticky and 70px tall. Reset those rules inside the modal. */
+.how-wrap {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  overflow-y: auto;
+  padding: clamp(10px, 2.2vh, 22px);
+}
+
+.how-backdrop {
+  position: fixed;
+}
+
+.how-modal {
+  flex: 0 0 auto;
+  max-height: none;
+  overflow: visible;
+}
+
+.how-modal > header {
+  position: relative;
+  top: auto;
+  z-index: auto;
+  height: auto;
+  min-height: 130px;
+  overflow: visible;
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.how-step {
+  min-height: 292px;
+  padding-bottom: 62px;
+}
+
 @media (max-width: 700px) {
   .evidence-actions {
     align-items: flex-end;
     flex-direction: column;
     gap: 7px;
+  }
+
+  .how-modal {
+    min-height: 100%;
   }
 }
