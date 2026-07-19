@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 import time
 from collections import Counter
 from datetime import datetime, timezone
@@ -29,6 +30,78 @@ _overview_lock = asyncio.Lock()
 
 class BriefingRequest(BaseModel):
     question: str = "What requires operator attention right now?"
+
+
+def _check(name: str, status: str, *, required: bool, evidence: str, remediation: str = "") -> dict:
+    return {"name": name, "status": status, "required": required,
+            "evidence": evidence, "remediation": remediation}
+
+
+async def _http_readiness(name: str, url: str, remediation: str) -> dict:
+    try:
+        async with httpx.AsyncClient(timeout=3) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            body = response.json()
+        status = str(body.get("status", "ok")).lower()
+        ready = status in {"ok", "healthy", "ready"}
+        return _check(name, "ready" if ready else "not_ready", required=True,
+                      evidence=f"GET {url} returned {status}", remediation="" if ready else remediation)
+    except Exception as exc:  # noqa: BLE001
+        return _check(name, "not_ready", required=True, evidence=f"GET {url} failed: {exc}", remediation=remediation)
+
+
+async def _kubectl(args: list[str]) -> tuple[bool, str]:
+    if not shutil.which("kubectl"):
+        return False, "kubectl is not installed"
+    command = ["kubectl"]
+    if config.KUBECTL_CONTEXT:
+        command.extend(["--context", config.KUBECTL_CONTEXT])
+    command.extend(args)
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=8)
+    except Exception as exc:  # noqa: BLE001
+        return False, str(exc)
+    output = (stdout if process.returncode == 0 else stderr).decode().strip()
+    return process.returncode == 0, output
+
+
+async def _kubernetes_readiness() -> list[dict]:
+    mode = config.DEMO_MODE
+    definitions = [
+        ("Kubernetes", None, None, "Start the argus k3s cluster and select its context."),
+        ("Cilium", "kube-system", "k8s-app=cilium", "Restore the Cilium DaemonSet."),
+        ("Falco", "kube-system", "app.kubernetes.io/name=falco", "Deploy or restore Falco."),
+        ("Kyverno", "kyverno", "app.kubernetes.io/component=admission-controller", "Deploy or restore Kyverno admission control."),
+        ("Chaos Mesh", "kube-system", "app.kubernetes.io/component=controller-manager", "Deploy or restore the Chaos Mesh controller."),
+    ]
+    if mode != "live":
+        return [_check(name, "not_applicable", required=False,
+                       evidence="Portable mode intentionally makes no Kubernetes API calls.")
+                for name, *_ in definitions]
+    results = []
+    ok, output = await _kubectl(["--request-timeout=5s", "get", "--raw=/readyz"])
+    results.append(_check("Kubernetes", "ready" if ok else "not_ready", required=True,
+                          evidence=output or "API readyz passed", remediation="" if ok else definitions[0][3]))
+    for name, namespace, selector, remediation in definitions[1:]:
+        ok, output = await _kubectl(["-n", namespace, "get", "pods", "-l", selector,
+                                     "--field-selector=status.phase=Running", "-o", "json"])
+        ready_count = 0
+        if ok:
+            try:
+                payload = json.loads(output)
+                ready_count = sum(all(state.get("ready") for state in item.get("status", {}).get("containerStatuses", []))
+                                  for item in payload.get("items", []))
+            except json.JSONDecodeError:
+                ok = False
+        ready = ok and ready_count > 0
+        results.append(_check(name, "ready" if ready else "not_ready", required=True,
+                              evidence=f"{ready_count} Ready pod(s) for {namespace}/{selector}" if ok else output,
+                              remediation="" if ready else remediation))
+    return results
 
 
 async def _get(path: str, params: dict | None = None) -> Any:
@@ -287,6 +360,38 @@ async def health() -> dict:
     return {"status": "ok" if connected else "degraded", "service": "sentinel-orchestrator",
             "world_model_connected": connected, "openai_configured": bool(config.OPENAI_API_KEY),
             "world_model": world_model}
+
+
+@app.get("/readiness")
+async def readiness() -> dict:
+    """Read-only presentation preflight; never installs, starts, or mutates a component."""
+    core = await asyncio.gather(
+        _http_readiness("Argus", f"{config.ARGUS_URL}/health", "Start the Argus API or its cluster port-forward."),
+        _http_readiness("SOG", f"{config.WORLD_MODEL_URL}/health", "Start the Sentinel Operations Graph."),
+        _http_readiness("Phoenix graph", f"{config.PHOENIX_GRAPH_URL}/health", "Start Phoenix graph."),
+        _http_readiness("Phoenix chaos", f"{config.PHOENIX_CHAOS_URL}/health", "Start Phoenix chaos."),
+        _http_readiness("Phoenix agent", f"{config.PHOENIX_AGENT_URL}/health", "Start Phoenix agent."),
+    )
+    phoenix_ready = all(item["status"] == "ready" for item in core[2:])
+    components = [
+        _check("Sentinel", "ready", required=True, evidence="Readiness API is responding."),
+        core[0],
+        _check("Phoenix", "ready" if phoenix_ready else "not_ready", required=True,
+               evidence="; ".join(item["evidence"] for item in core[2:]),
+               remediation="" if phoenix_ready else "Start all Phoenix graph, chaos, and agent services."),
+        core[1],
+        _check("OpenAI", "ready" if config.OPENAI_API_KEY else "not_configured", required=True,
+               evidence="OPENAI_API_KEY is configured (value hidden)." if config.OPENAI_API_KEY else "OPENAI_API_KEY is absent.",
+               remediation="" if config.OPENAI_API_KEY else "Set OPENAI_API_KEY and restart Sentinel."),
+        *(await _kubernetes_readiness()),
+    ]
+    blocking = [item for item in components if item["required"] and item["status"] != "ready"]
+    return {"status": "ready" if not blocking else "not_ready", "ready_to_present": not blocking,
+            "mode": config.DEMO_MODE, "checked_at": datetime.now(timezone.utc).isoformat(),
+            "summary": {"ready": sum(item["status"] == "ready" for item in components),
+                        "blocking": len(blocking),
+                        "not_applicable": sum(item["status"] == "not_applicable" for item in components)},
+            "components": components}
 
 
 @app.get("/overview")

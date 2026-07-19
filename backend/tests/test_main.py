@@ -2,7 +2,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from main import _correlated_incidents, _risk, _source, _summary, build_overview
+from main import _correlated_incidents, _risk, _source, _summary, build_overview, readiness
+from config import config
 
 
 def test_source_normalizes_agents():
@@ -65,3 +66,35 @@ async def test_overview_aggregates_sources():
     assert result["sources"]["argus"]["latest_at"] == "2026-07-18T00:00:00Z"
     assert result["components"][0]["evidence"][0]["summary"] == "shell detected"
     assert result["timeline"][0]["summary"] == "shell detected"
+
+
+@pytest.mark.asyncio
+async def test_portable_readiness_is_presentation_ready_without_kubernetes(monkeypatch):
+    async def healthy(name, url, remediation):
+        return {"name": name, "status": "ready", "required": True, "evidence": f"{url} ok", "remediation": ""}
+
+    monkeypatch.setattr("main._http_readiness", healthy)
+    monkeypatch.setattr(config, "DEMO_MODE", "portable")
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "configured")
+    result = await readiness()
+    assert result["ready_to_present"] is True
+    assert result["summary"]["blocking"] == 0
+    assert result["summary"]["not_applicable"] == 5
+    assert {item["name"] for item in result["components"]} >= {"Argus", "Phoenix", "Sentinel", "SOG", "OpenAI", "Kubernetes", "Cilium", "Falco", "Kyverno", "Chaos Mesh"}
+
+
+@pytest.mark.asyncio
+async def test_readiness_explains_blocking_service_and_openai(monkeypatch):
+    async def services(name, url, remediation):
+        status = "not_ready" if name == "Argus" else "ready"
+        return {"name": name, "status": status, "required": True, "evidence": f"{url} {status}", "remediation": remediation if status != "ready" else ""}
+
+    monkeypatch.setattr("main._http_readiness", services)
+    monkeypatch.setattr(config, "DEMO_MODE", "portable")
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "")
+    result = await readiness()
+    assert result["ready_to_present"] is False
+    assert result["summary"]["blocking"] == 2
+    blocking = {item["name"]: item for item in result["components"] if item["required"] and item["status"] != "ready"}
+    assert blocking["Argus"]["remediation"]
+    assert blocking["OpenAI"]["status"] == "not_configured"
