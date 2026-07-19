@@ -107,6 +107,13 @@ then requires Sentinel to expose the correlated incident with `observed` + `live
 provenance. The scorecard contains measured availability and recovery time; `Ctrl-C`
 deletes only the isolated namespace.
 
+Open the resulting correlated incident to see the canonical resilience proof:
+**Healthy → Fault injected → Detection → Decision → Human approval → Recovery →
+Verification**. Live runs include measured detection time, recovery time, HTTP
+availability, and evidence sources. Every record is assigned exactly one visible label:
+**Live Observed**, **Synthetic Simulator**, **Live Chaos Mesh**, or **Replayed Evidence**.
+Older records without stage evidence display unavailable steps instead of inferred data.
+
 ### Sentinel-only development
 
 Run the Sentinel Operations Graph service first, then:

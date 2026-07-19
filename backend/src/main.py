@@ -90,6 +90,17 @@ def _correlated_incidents(timeline: list[dict]) -> list[dict]:
         ordered = sorted(evidence, key=lambda item: str(item.get("timestamp") or ""))
         severity = max((_severity(item) for item in evidence), key=lambda value: severity_rank.get(value, 0))
         terminal = next((item for item in reversed(ordered) if item.get("outcome")), None)
+        proof_record = next((item for item in reversed(ordered)
+                             if isinstance(item.get("payload", {}).get("lifecycle"), list)), None)
+        proof = None
+        if proof_record:
+            payload = proof_record.get("payload", {})
+            proof = {
+                "lifecycle": payload.get("lifecycle", []),
+                "metrics": payload.get("metrics", {}),
+                "evidence_source": payload.get("evidence_source"),
+                "experiment_id": payload.get("scenario_id"),
+            }
         entity = next((item.get("entity_name") for item in ordered if item.get("entity_name")), None)
         incidents.append({
             "incident_id": f"corr:{correlation_id}", "correlation_id": correlation_id,
@@ -98,6 +109,7 @@ def _correlated_incidents(timeline: list[dict]) -> list[dict]:
             "started_at": ordered[0].get("timestamp"), "updated_at": ordered[-1].get("timestamp"),
             "sources": sorted(sources), "evidence_count": len(ordered), "timeline": ordered,
             "provenance": sorted({str(item.get("provenance") or "observed") for item in ordered}),
+            "proof": proof,
         })
     return sorted(incidents, key=lambda item: str(item.get("updated_at") or ""), reverse=True)
 
@@ -216,8 +228,8 @@ async def _build_overview_uncached() -> dict:
             "connected": bool(source_findings),
             "findings": len(source_findings),
             "latest_at": source_findings[0]["timestamp"] if source_findings else None,
-            "live": sum(not item["replayed"] for item in source_findings),
-            "replayed": sum(item["replayed"] for item in source_findings),
+            "live": sum(item["provenance"] in {"observed", "live_chaos"} for item in source_findings),
+            "replayed": sum(item["provenance"] == "replayed" for item in source_findings),
             "critical": sum(item["severity"] == "critical" for item in source_findings),
             "high": sum(item["severity"] == "high" for item in source_findings),
         }
@@ -231,8 +243,11 @@ async def _build_overview_uncached() -> dict:
                    "findings": len(findings), "incidents": len(incidents),
                    "argus": sources.get("argus", 0), "phoenix": sources.get("phoenix", 0),
                    "critical": severities.get("critical", 0), "high": severities.get("high", 0),
-                   "live": sum(not item["replayed"] for item in timeline),
-                   "replayed": sum(item["replayed"] for item in timeline),
+                   "live": sum(item["provenance"] in {"observed", "live_chaos"} for item in timeline),
+                   "observed": sum(item["provenance"] == "observed" for item in timeline),
+                   "live_chaos": sum(item["provenance"] == "live_chaos" for item in timeline),
+                   "simulator": sum(item["provenance"] == "simulator" for item in timeline),
+                   "replayed": sum(item["provenance"] == "replayed" for item in timeline),
                    "namespaces": len(namespaces),
                    "affected": sum(item["finding_count"] > 0 for item in components)},
         "sources": source_health, "namespaces": dict(namespaces),
