@@ -114,6 +114,13 @@ availability, and evidence sources. Every record is assigned exactly one visible
 **Live Observed**, **Synthetic Simulator**, **Live Chaos Mesh**, or **Replayed Evidence**.
 Older records without stage evidence display unavailable steps instead of inferred data.
 
+Before presenting, expand **Presentation Preflight** at the top of Sentinel. The panel
+checks Argus, Phoenix, Sentinel, SOG, OpenAI, Kubernetes, Cilium, Falco, Kyverno, and
+Chaos Mesh through read-only endpoints. Portable mode marks cluster-only systems N/A;
+live mode reports actual Ready pod counts from the authorized kubectl context. Every
+failure includes its evidence and an exact remediation. The platform demo commands will
+not declare success unless this panel reports **Ready to present**.
+
 ### Sentinel-only development
 
 Run the Sentinel Operations Graph service first, then:
