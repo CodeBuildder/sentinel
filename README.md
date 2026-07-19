@@ -68,10 +68,10 @@ Projects/
 
 The recommended judge path is cluster-free. It needs Docker or OrbStack for one
 disposable Redis container, but does not need Kubernetes, kubectl, Cilium, Falco, or
-Chaos Mesh. Run the non-mutating preflight:
+Chaos Mesh. Run the non-mutating doctor:
 
 ```bash
-make -C ../../argus-k8s demo-platform-dry-run
+make -C ../../argus-k8s doctor
 ```
 
 Launch the complete platform:
@@ -94,11 +94,12 @@ For the guarded real three-node k3s proof:
 
 ```bash
 kubectl config use-context argus
-make -C ../../argus-k8s demo-platform-live-dry-run
+make -C ../../argus-k8s doctor-live
 make -C ../../argus-k8s demo-platform-live
 ```
 
-The dry-run is read-only. The live command requires the exact context and the phrase
+The doctor is read-only and ends with a `READY`/`NOT READY` verdict plus an exact next
+action. The live command requires the exact context and the phrase
 `INJECT LIVE FAULT`, creates only `sentinel-live-demo`, and continuously probes a
 two-replica HTTP target. It waits for observed Argus/Falco evidence, asks Phoenix to
 create one real Chaos Mesh `PodChaos`, verifies the replacement and full readiness, and
