@@ -121,6 +121,13 @@ live mode reports actual Ready pod counts from the authorized kubectl context. E
 failure includes its evidence and an exact remediation. The platform demo commands will
 not declare success unless this panel reports **Ready to present**.
 
+Select **How it works** in Sentinel's header for the unified 30-second explanation. The
+full-screen flow introduces Argus observation, the SOG shared model, Sentinel/OpenAI
+decision support, human governance, and Phoenix recovery plus verification. It includes
+a ready-to-speak judge narration, explicit autonomous/high-risk boundaries, and all four
+evidence-provenance labels. The overlay is responsive and closes with its button, the
+backdrop, or `Escape`.
+
 ### Sentinel-only development
 
 Run the Sentinel Operations Graph service first, then:

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Activity, AlertTriangle, ArrowRight, BrainCircuit, CheckCircle2, ChevronRight,
+  Activity, AlertTriangle, ArrowRight, BookOpen, BrainCircuit, CheckCircle2, ChevronRight,
   CircleDot, Clock3, GitBranch, Layers3, Network, RefreshCw, Shield, Sparkles,
   Timer, UserCheck, X, Zap,
 } from 'lucide-react'
@@ -222,6 +222,23 @@ function ReadinessPanel({ readiness, expanded, onToggle, onRefresh }: { readines
   </section>
 }
 
+function HowItWorks({ onClose }: { onClose: () => void }) {
+  useEffect(() => { const close = (event: KeyboardEvent) => event.key === 'Escape' && onClose(); document.addEventListener('keydown', close); return () => document.removeEventListener('keydown', close) }, [onClose])
+  const steps = [
+    { number: '01', name: 'ARGUS', role: 'Observe', icon: Shield, tone: 'argus', text: 'Falco, Cilium, and Kyverno evidence becomes one reasoned security finding.', output: 'Threat + blast radius' },
+    { number: '02', name: 'SOG', role: 'Connect', icon: GitBranch, tone: 'sentinel', text: 'The Sentinel Operations Graph connects services, dependencies, evidence, incidents, and trust.', output: 'Shared operational truth' },
+    { number: '03', name: 'SENTINEL + OPENAI', role: 'Decide', icon: BrainCircuit, tone: 'sentinel', text: 'Sentinel explains what changed, ranks risk, and chooses what requires attention.', output: 'Evidence-grounded decision' },
+    { number: '04', name: 'HUMAN GOVERNANCE', role: 'Authorize', icon: UserCheck, tone: 'human', text: 'Low-risk, proven actions can run autonomously. High-impact actions wait for explicit approval.', output: 'Accountable control' },
+    { number: '05', name: 'PHOENIX', role: 'Recover + verify', icon: Zap, tone: 'phoenix', text: 'Phoenix exercises resilience, executes the approved recovery, and verifies service health.', output: 'Measured recovery evidence' },
+  ]
+  return <div className="how-wrap" role="dialog" aria-modal="true" aria-labelledby="how-title"><button className="how-backdrop" onClick={onClose} aria-label="Close How it works" /><article className="how-modal"><header><div><span>THE 30-SECOND SYSTEM STORY</span><h2 id="how-title">From runtime signal to verified resilience.</h2><p>One evidence loop. Two specialist agents. Human control where consequences matter.</p></div><button onClick={onClose} aria-label="Close"><X /></button></header>
+    <div className="how-flow">{steps.map(({ icon: Icon, ...step }, index) => <div className={`how-step ${step.tone}`} key={step.name}><div className="how-step-top"><span>{step.number}</span><i><Icon /></i></div><small>{step.role}</small><h3>{step.name}</h3><p>{step.text}</p><strong><CheckCircle2 />{step.output}</strong>{index < steps.length - 1 && <ArrowRight className="how-arrow" />}</div>)}</div>
+    <div className="how-narration"><div><BookOpen /><span><b>Say this to a judge</b><small>≈ 24 seconds at a natural pace</small></span></div><blockquote>“Argus turns live security telemetry into evidence. The SOG connects that evidence to the affected services. Sentinel uses OpenAI to explain the risk and decide what needs attention. Proven, low-risk recovery can run autonomously; high-risk action requires a human. Phoenix restores the service, verifies the outcome, and feeds that evidence back into Sentinel.”</blockquote></div>
+    <div className="how-truth"><div><b>AUTONOMOUS</b><span>Detection · correlation · diagnosis · bounded recovery · verification</span></div><div><b>HUMAN-GOVERNED</b><span>High blast radius · ambiguous evidence · destructive or unproven actions</span></div><div className="how-provenance"><b>EVERY RECORD SAYS WHAT IT IS</b><span><em className="observed">LIVE OBSERVED</em><em className="live_chaos">LIVE CHAOS MESH</em><em className="simulator">SYNTHETIC SIMULATOR</em><em className="replayed">REPLAYED EVIDENCE</em></span></div></div>
+    <footer><span><GitBranch />SOG means Sentinel Operations Graph</span><strong>Autonomous resilience through AI—with humans governing high-risk actions.</strong><button onClick={onClose}>Enter command center <ArrowRight /></button></footer>
+  </article></div>
+}
+
 function MetricDetail({ metric, data, onSignal, onComponent, onIncident }: { metric: MetricKind; data: Overview | null; onSignal: (signal: Timeline) => void; onComponent: (component: Component) => void; onIncident: (incident: Incident) => void }) {
   const definitions: Record<MetricKind, { title: string; description: string }> = {
     signals: { title: 'Evidence records', description: 'Every finding in the current Sentinel Operations Graph window, separated by exact provenance.' },
@@ -266,6 +283,7 @@ export default function App() {
   const [brief, setBrief] = useState(''), [briefing, setBriefing] = useState(false), [detail, setDetail] = useState<Detail | null>(null)
   const [previousRisk, setPreviousRisk] = useState<number | null>(null), [, setClock] = useState(0)
   const [readiness, setReadiness] = useState<Readiness | null>(null), [showReadiness, setShowReadiness] = useState(true)
+  const [showHow, setShowHow] = useState(false)
   const load = async () => { setLoading(true); try { const response = await fetch(`${API}/overview`); if (!response.ok) throw Error(await response.text()); const next: Overview = await response.json(); setData(current => { if (current) setPreviousRisk(current.fleet_risk); return next }); setError('') } catch (caught: any) { setError(caught.message) } finally { setLoading(false) } }
   const loadReadiness = async () => { try { const response = await fetch(`${API}/readiness`); if (!response.ok) throw Error(await response.text()); setReadiness(await response.json()) } catch { setReadiness(null) } }
   useEffect(() => { load(); const refreshTimer = setInterval(load, 15000); const clockTimer = setInterval(() => setClock(value => value + 1), 1000); return () => { clearInterval(refreshTimer); clearInterval(clockTimer) } }, [])
@@ -275,7 +293,7 @@ export default function App() {
   const selectTopology = (id: string) => { const component = componentsById.get(id); if (component) setDetail({ kind: 'component', component }) }
   const urgent = (data?.counts.critical || 0) + (data?.counts.high || 0)
   return <div className="shell">
-    <header><div className="brand"><div className="mark"><Network /></div><div><h1>SENTINEL</h1><p>OPENAI-NATIVE · SENTINEL OPERATIONS GRAPH</p></div></div><nav className="console-nav" aria-label="Platform consoles"><ConsoleLink href={ARGUS_URL}><Shield />Argus</ConsoleLink><ConsoleLink href={PHOENIX_URL}><Zap />Phoenix</ConsoleLink><span className="console-link current"><Network />Sentinel</span></nav><div className="header-state"><i className={error ? 'bad' : ''} /><div><b title="Sentinel Operations Graph status">{error ? 'SOG DEGRADED' : data?.status === 'degraded' ? 'PARTIAL DATA' : 'SOG LIVE'}</b><small>{data ? `refreshed ${age(data.generated_at)}` : 'connecting'}</small></div><button onClick={load} className={loading ? 'spin' : ''} aria-label="Refresh"><RefreshCw /></button></div></header>
+    <header><div className="brand"><div className="mark"><Network /></div><div><h1>SENTINEL</h1><p>OPENAI-NATIVE · SENTINEL OPERATIONS GRAPH</p></div></div><nav className="console-nav" aria-label="Platform consoles"><ConsoleLink href={ARGUS_URL}><Shield />Argus</ConsoleLink><ConsoleLink href={PHOENIX_URL}><Zap />Phoenix</ConsoleLink><span className="console-link current"><Network />Sentinel</span><button className="console-link how-link" onClick={() => setShowHow(true)}><BookOpen />How it works</button></nav><div className="header-state"><i className={error ? 'bad' : ''} /><div><b title="Sentinel Operations Graph status">{error ? 'SOG DEGRADED' : data?.status === 'degraded' ? 'PARTIAL DATA' : 'SOG LIVE'}</b><small>{data ? `refreshed ${age(data.generated_at)}` : 'connecting'}</small></div><button onClick={load} className={loading ? 'spin' : ''} aria-label="Refresh"><RefreshCw /></button></div></header>
     <main>
       <section className="hero"><div><span>UNIFIED COMMAND CENTER</span><h2>One fleet. Two specialist agents.<br /><em>One accountable decision.</em></h2><p>Sentinel combines Argus security evidence and Phoenix resilience outcomes inside the <strong>Sentinel Operations Graph (SOG)</strong>—the shared, live evidence layer that explains exactly what requires attention and why.</p><div className="sog-definition"><GitBranch /><div><b>SOG</b><span>Sentinel Operations Graph</span><small>One connected model of services, dependencies, evidence, incidents, and trust.</small></div></div><div className="hero-state"><span><i className={urgent ? 'urgent' : ''} />{urgent ? `${urgent} urgent signals need review` : 'No urgent evidence in the current window'}</span><span><Clock3 />Polling the Operations Graph every 15 seconds</span><span className="streaming"><Activity />SOG evidence stream active</span></div></div><LiveRiskPanel data={data} previousRisk={previousRisk} onSelect={component => setDetail({ kind: 'component', component })} /></section>
       {error && <div className="error"><AlertTriangle />Sentinel cannot reach the Sentinel Operations Graph (SOG) gateway. {error}</div>}
@@ -290,6 +308,7 @@ export default function App() {
     </main>
     <footer><span>SENTINEL PLATFORM</span><span><Shield />ARGUS <Zap />PHOENIX <GitBranch />SOG · SENTINEL OPERATIONS GRAPH</span><span><Timer />15s live refresh</span></footer>
     {detail && <DetailDrawer detail={detail} data={data} onClose={() => setDetail(null)} onDetail={setDetail} />}
+    {showHow && <HowItWorks onClose={() => setShowHow(false)} />}
   </div>
 }
 
