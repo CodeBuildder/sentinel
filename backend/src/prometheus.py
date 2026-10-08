@@ -1,0 +1,154 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+from statistics import median
+
+import httpx
+
+from config import config
+
+# Abstract SLI names as used by scenarios.yaml (measure.sli) mapped to PromQL
+# templates. These assume a conventional RED-method schema (http_requests_total
+# with a `code` label, a job-completion counter, a latency histogram) that has
+# not been confirmed against the design partner's actual Prometheus. Treat as
+# a starting point, not ground truth.
+_SLI_TEMPLATES = {
+    "http_request_success_rate": (
+        'sum(rate(http_requests_total{{{selector},code!~"5.."}}[1m]))'
+        ' / sum(rate(http_requests_total{{{selector}}}[1m]))'
+    ),
+    "job_completion_rate": (
+        'sum(rate(job_completions_total{{{selector},status="success"}}[1m]))'
+        ' / sum(rate(job_completions_total{{{selector}}}[1m]))'
+    ),
+    "http_request_latency_p95": (
+        'histogram_quantile(0.95,'
+        ' sum(rate(http_request_duration_seconds_bucket{{{selector}}}[5m])) by (le))'
+    ),
+}
+
+
+def sli_query(sli: str, selector: str) -> str:
+    try:
+        template = _SLI_TEMPLATES[sli]
+    except KeyError:
+        raise ValueError(f"no PromQL template for sli={sli!r}; known: {sorted(_SLI_TEMPLATES)}") from None
+    return template.format(selector=selector)
+
+
+class PrometheusQueryError(Exception):
+    pass
+
+
+Series = list[tuple[datetime, float]]
+
+
+class PrometheusClient:
+    """Reads SLI data from the customer's Prometheus. Never our own probe (CLAUDE.md)."""
+
+    def __init__(self, base_url: str | None = None, *, timeout: float | None = None):
+        self.base_url = (base_url or config.PROMETHEUS_URL).rstrip("/")
+        self.timeout = timeout if timeout is not None else config.REQUEST_TIMEOUT_SECONDS
+
+    async def query_range(self, expr: str, start: datetime, end: datetime, step_seconds: int) -> Series:
+        params = {
+            "query": expr,
+            "start": start.timestamp(),
+            "end": end.timestamp(),
+            "step": step_seconds,
+        }
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.get(f"{self.base_url}/api/v1/query_range", params=params)
+        resp.raise_for_status()
+        payload = resp.json()
+        if payload.get("status") != "success":
+            raise PrometheusQueryError(payload.get("error", "unknown prometheus error"))
+        result = payload["data"]["result"]
+        if not result:
+            return []
+        if len(result) > 1:
+            raise PrometheusQueryError(f"expected a single series, got {len(result)}; narrow the selector")
+        return [(datetime.fromtimestamp(float(ts), tz=timezone.utc), float(val)) for ts, val in result[0]["values"]]
+
+
+def _nearest(series: Series, target: datetime, tolerance: timedelta) -> float | None:
+    best_value: float | None = None
+    best_delta: float | None = None
+    for ts, value in series:
+        delta = abs((ts - target).total_seconds())
+        if delta <= tolerance.total_seconds() and (best_delta is None or delta < best_delta):
+            best_value, best_delta = value, delta
+    return best_value
+
+
+@dataclass(frozen=True)
+class BaselineResult:
+    window_start: datetime
+    window_end: datetime
+    step_seconds: int
+    lookback_weeks: int
+    offset_tolerance_minutes: int
+    observed: Series
+    baseline: Series
+    samples_per_point: list[int] = field(default_factory=list)
+
+    @property
+    def min_samples(self) -> int:
+        return min(self.samples_per_point) if self.samples_per_point else 0
+
+    @property
+    def impact(self) -> float:
+        """sum over [t0,t1] of (observed(t) - baseline(t)) — CLAUDE.md's containment-cost formula."""
+        return sum(obs - base for (_, obs), (_, base) in zip(self.observed, self.baseline))
+
+
+async def time_matched_baseline(
+    client: PrometheusClient,
+    expr: str,
+    window_start: datetime,
+    window_end: datetime,
+    *,
+    step_seconds: int = 30,
+    lookback_weeks: int = 4,
+    offset_tolerance_minutes: int = 15,
+) -> BaselineResult:
+    """Baseline is time-matched: same weekday and hour, prior N weeks (CLAUDE.md)."""
+    if window_start.tzinfo is None or window_end.tzinfo is None:
+        raise ValueError("window_start/window_end must be timezone-aware")
+
+    observed = await client.query_range(expr, window_start, window_end, step_seconds)
+
+    tolerance = timedelta(minutes=offset_tolerance_minutes)
+    weekly_series: list[Series] = []
+    for week in range(1, lookback_weeks + 1):
+        shift = timedelta(weeks=week)
+        series = await client.query_range(expr, window_start - shift - tolerance, window_end - shift + tolerance, step_seconds)
+        weekly_series.append(series)
+
+    baseline: Series = []
+    samples_per_point: list[int] = []
+    for ts, _ in observed:
+        matched = []
+        for week, series in enumerate(weekly_series, start=1):
+            value = _nearest(series, ts - timedelta(weeks=week), tolerance)
+            if value is not None:
+                matched.append(value)
+        if not matched:
+            raise PrometheusQueryError(
+                f"no baseline sample within {offset_tolerance_minutes}m of {ts.isoformat()} "
+                f"across {lookback_weeks} prior week(s); baseline is undefined for this window"
+            )
+        baseline.append((ts, median(matched)))
+        samples_per_point.append(len(matched))
+
+    return BaselineResult(
+        window_start=window_start,
+        window_end=window_end,
+        step_seconds=step_seconds,
+        lookback_weeks=lookback_weeks,
+        offset_tolerance_minutes=offset_tolerance_minutes,
+        observed=observed,
+        baseline=baseline,
+        samples_per_point=samples_per_point,
+    )
