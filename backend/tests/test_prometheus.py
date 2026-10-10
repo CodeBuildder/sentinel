@@ -6,6 +6,7 @@ import pytest
 from prometheus import (
     PrometheusClient,
     PrometheusQueryError,
+    detect_sli_blind_spot,
     sli_query,
     time_matched_baseline,
     windowed_counter_delta,
@@ -167,3 +168,77 @@ async def test_windowed_counter_delta_raises_when_no_sample_in_padded_window():
             await windowed_counter_delta(
                 client, "http_requests_total", window_start, window_end, scrape_interval_seconds=5
             )
+
+
+@pytest.mark.asyncio
+async def test_detect_sli_blind_spot_flags_zero_app_failed_with_real_drops():
+    window_start = datetime(2026, 7, 20, 14, 0, 0, tzinfo=timezone.utc)
+    window_end = window_start + timedelta(seconds=30)
+    client = PrometheusClient(base_url="http://prom.test")
+
+    async def fake_delta(client_, expr, start, end, *, scrape_interval_seconds):
+        return 0.0 if "http_requests_total" in expr else 420.0
+
+    with patch("prometheus.windowed_counter_delta", new=fake_delta):
+        result = await detect_sli_blind_spot(
+            client,
+            app_failed_expr='http_requests_total{code="500"}',
+            edge_drop_expr='cilium_drop_count_total{reason="Policy denied"}',
+            window_start=window_start,
+            window_end=window_end,
+            scrape_interval_seconds=5,
+        )
+
+    assert result.blind is True
+    assert result.app_failed == 0.0
+    assert result.edge_drops == 420.0
+    assert result.corrected_failed == 420.0
+    assert "420" in result.reason
+    assert "not a clean zero" in result.reason
+
+
+@pytest.mark.asyncio
+async def test_detect_sli_blind_spot_not_blind_when_app_counter_agrees():
+    window_start = datetime(2026, 7, 20, 14, 0, 0, tzinfo=timezone.utc)
+    window_end = window_start + timedelta(seconds=30)
+    client = PrometheusClient(base_url="http://prom.test")
+
+    async def fake_delta(client_, expr, start, end, *, scrape_interval_seconds):
+        return 19.0 if "http_requests_total" in expr else 0.0
+
+    with patch("prometheus.windowed_counter_delta", new=fake_delta):
+        result = await detect_sli_blind_spot(
+            client,
+            app_failed_expr='http_requests_total{code="500"}',
+            edge_drop_expr='cilium_drop_count_total{reason="Policy denied"}',
+            window_start=window_start,
+            window_end=window_end,
+            scrape_interval_seconds=5,
+        )
+
+    assert result.blind is False
+    assert result.reason is None
+    assert result.corrected_failed == 19.0
+
+
+@pytest.mark.asyncio
+async def test_detect_sli_blind_spot_not_blind_when_both_zero():
+    window_start = datetime(2026, 7, 20, 14, 0, 0, tzinfo=timezone.utc)
+    window_end = window_start + timedelta(seconds=30)
+    client = PrometheusClient(base_url="http://prom.test")
+
+    async def fake_delta(client_, expr, start, end, *, scrape_interval_seconds):
+        return 0.0
+
+    with patch("prometheus.windowed_counter_delta", new=fake_delta):
+        result = await detect_sli_blind_spot(
+            client,
+            app_failed_expr='http_requests_total{code="500"}',
+            edge_drop_expr='cilium_drop_count_total{reason="Policy denied"}',
+            window_start=window_start,
+            window_end=window_end,
+            scrape_interval_seconds=5,
+        )
+
+    assert result.blind is False
+    assert result.corrected_failed == 0.0

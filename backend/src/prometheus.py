@@ -125,6 +125,60 @@ async def windowed_counter_delta(
     return after - before
 
 
+@dataclass(frozen=True)
+class BlindSpotResult:
+    """app_failed alone can read a clean 0 while real cost is nonzero: a deny
+    NetworkPolicy drops packets before they ever reach the app, so an
+    app-level request counter never sees them. corrected_failed folds in the
+    edge-level signal so that case isn't silently reported as zero cost."""
+
+    app_failed: float
+    edge_drops: float
+    blind: bool
+    reason: str | None
+
+    @property
+    def corrected_failed(self) -> float:
+        return self.app_failed + self.edge_drops
+
+
+async def detect_sli_blind_spot(
+    client: PrometheusClient,
+    *,
+    app_failed_expr: str,
+    edge_drop_expr: str,
+    window_start: datetime,
+    window_end: datetime,
+    scrape_interval_seconds: int,
+) -> BlindSpotResult:
+    """Cross-checks an app-level failure counter against an edge-level one
+    (e.g. Cilium's cilium_drop_count_total, which counts policy-denied drops
+    before they reach any pod) for the same window. Flags SLI_BLIND -- never
+    a clean zero (CLAUDE.md Rule 7) -- when the app counter says nothing
+    happened but the edge counter disagrees. Either expr can be whatever SLI
+    query fits the action under test; app_failed_expr is expected to be ~0
+    for network-layer actions (the app never sees them) and nonzero for
+    app-visible ones (e.g. T1's fault-knob 500s), so neither side is right
+    for every action type -- corrected_failed sums both because they count
+    non-overlapping failure modes.
+    """
+    app_failed = await windowed_counter_delta(
+        client, app_failed_expr, window_start, window_end, scrape_interval_seconds=scrape_interval_seconds
+    )
+    edge_drops = await windowed_counter_delta(
+        client, edge_drop_expr, window_start, window_end, scrape_interval_seconds=scrape_interval_seconds
+    )
+    blind = app_failed == 0 and edge_drops > 0
+    reason = None
+    if blind:
+        reason = (
+            f"app-level failed count is 0 but {edge_drops:.0f} edge-level policy-denied "
+            "drops were observed in the same window; app metrics alone cannot see "
+            "network-layer drops -- this is not a clean zero"
+        )
+    return BlindSpotResult(app_failed=app_failed, edge_drops=edge_drops, blind=blind, reason=reason)
+
+
 def _nearest(series: Series, target: datetime, tolerance: timedelta) -> float | None:
     best_value: float | None = None
     best_delta: float | None = None
