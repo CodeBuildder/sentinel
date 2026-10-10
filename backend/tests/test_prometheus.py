@@ -136,7 +136,7 @@ async def test_query_instant_parses_single_value():
 
 
 @pytest.mark.asyncio
-async def test_windowed_counter_delta_pads_each_edge_by_one_scrape_interval():
+async def test_windowed_counter_delta_queries_exact_boundaries_not_padded():
     window_start = datetime(2026, 7, 20, 14, 0, 0, tzinfo=timezone.utc)
     window_end = window_start + timedelta(seconds=30)
     client = PrometheusClient(base_url="http://prom.test")
@@ -144,7 +144,7 @@ async def test_windowed_counter_delta_pads_each_edge_by_one_scrape_interval():
 
     async def fake_query_instant(expr, at):
         calls.append(at)
-        return 100.0 if at < window_start else 136.0
+        return 100.0 if at == window_start else 136.0
 
     with patch.object(client, "query_instant", new=fake_query_instant):
         delta = await windowed_counter_delta(
@@ -152,7 +152,9 @@ async def test_windowed_counter_delta_pads_each_edge_by_one_scrape_interval():
         )
 
     assert delta == 36.0
-    assert calls == [window_start - timedelta(seconds=5), window_end + timedelta(seconds=5)]
+    # exact boundaries, not shifted outward -- padding was tried and found to
+    # overcount (widens the counted span by 2 * scrape_interval_seconds)
+    assert calls == [window_start, window_end]
 
 
 @pytest.mark.asyncio

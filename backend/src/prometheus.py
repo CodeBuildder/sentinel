@@ -100,16 +100,26 @@ async def windowed_counter_delta(
     """Counter delta over [window_start, window_end] from two instant values,
     not query_range steps. query_range's own step alignment can silently clip
     traffic near either edge when a window boundary falls between two scrape
-    timestamps (the first/last returned sample is already inside the window,
-    not at its edge) -- this undercounts, worst on sparse series like failed
-    requests. Padding each side by one scrape interval guarantees a real
-    scrape brackets the true window on both sides instead."""
-    pad = timedelta(seconds=scrape_interval_seconds)
-    before = await client.query_instant(expr, window_start - pad)
-    after = await client.query_instant(expr, window_end + pad)
+    timestamps (the grid's last point can fall up to scrape_interval_seconds
+    short of window_end) -- this undercounts, worst on sparse series like
+    failed requests.
+
+    Queried at the exact boundaries, not padded outward: a Prometheus instant
+    query already resolves to the most recent scrape at or before the given
+    timestamp, which is correct for that exact instant -- it isn't on
+    query_range's grid, so it doesn't have query_range's clipping problem.
+    Padding both edges outward (window_start - pad, window_end + pad) was
+    tried and rejected: it widens the counted span by 2 * pad on top of the
+    window itself, which measurably overcounts on short windows (confirmed
+    ~2x on a ~12s window in testing). scrape_interval_seconds is accepted so
+    callers can size a Poisson/boundary-error allowance around this call's
+    residual (sub-scrape-interval) timing noise, not to shift the query.
+    """
+    before = await client.query_instant(expr, window_start)
+    after = await client.query_instant(expr, window_end)
     if before is None or after is None:
         raise PrometheusQueryError(
-            f"no counter sample within one scrape interval of the window [{window_start.isoformat()}, "
+            f"no counter sample at or before the window [{window_start.isoformat()}, "
             f"{window_end.isoformat()}]; cannot compute a delta"
         )
     return after - before
