@@ -6,6 +6,7 @@ import pytest
 from prometheus import (
     PrometheusClient,
     PrometheusQueryError,
+    assert_clock_in_sync,
     detect_sli_blind_spot,
     sli_query,
     time_matched_baseline,
@@ -259,3 +260,35 @@ async def test_detect_sli_blind_spot_not_blind_when_both_zero():
         )
 
     assert result.blind is False
+
+
+@pytest.mark.asyncio
+async def test_server_time_parses_vector_query_timestamp():
+    client = PrometheusClient(base_url="http://prom.test")
+    payload = {"status": "success", "data": {"result": [{"value": [1700000000, "0"]}]}}
+    fake_response = AsyncMock()
+    fake_response.raise_for_status = lambda: None
+    fake_response.json = lambda: payload
+    with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=fake_response)):
+        server_now = await client.server_time()
+    assert server_now == datetime.fromtimestamp(1700000000, tz=timezone.utc)
+
+
+@pytest.mark.asyncio
+async def test_assert_clock_in_sync_passes_within_tolerance():
+    client = PrometheusClient(base_url="http://prom.test")
+    server_now = datetime(2026, 7, 20, 14, 0, 0, tzinfo=timezone.utc)
+    claimed_now = server_now + timedelta(milliseconds=30)
+    with patch.object(client, "server_time", new=AsyncMock(return_value=server_now)):
+        skew_ms = await assert_clock_in_sync(client, claimed_now, max_skew_ms=50)
+    assert skew_ms == pytest.approx(30, abs=1)
+
+
+@pytest.mark.asyncio
+async def test_assert_clock_in_sync_raises_when_skew_exceeds_bound():
+    client = PrometheusClient(base_url="http://prom.test")
+    server_now = datetime(2026, 7, 20, 14, 0, 0, tzinfo=timezone.utc)
+    claimed_now = server_now + timedelta(milliseconds=200)
+    with patch.object(client, "server_time", new=AsyncMock(return_value=server_now)):
+        with pytest.raises(PrometheusQueryError, match="skew"):
+            await assert_clock_in_sync(client, claimed_now, max_skew_ms=50)

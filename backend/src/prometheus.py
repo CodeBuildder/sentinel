@@ -88,6 +88,42 @@ class PrometheusClient:
             raise PrometheusQueryError(f"expected a single series, got {len(result)}; narrow the selector")
         return float(result[0]["value"][1])
 
+    async def server_time(self) -> datetime:
+        """Prometheus's own clock: an instant query with no explicit `time`
+        defaults to server-side now, and the response's timestamp is that
+        server clock, independent of whatever metric is queried."""
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.get(f"{self.base_url}/api/v1/query", params={"query": "vector(0)"})
+        resp.raise_for_status()
+        payload = resp.json()
+        if payload.get("status") != "success":
+            raise PrometheusQueryError(payload.get("error", "unknown prometheus error"))
+        result = payload["data"]["result"]
+        if not result:
+            raise PrometheusQueryError("server_time: empty result querying vector(0)")
+        return datetime.fromtimestamp(float(result[0]["value"][0]), tz=timezone.utc)
+
+
+async def assert_clock_in_sync(
+    client: PrometheusClient, claimed_now: datetime, *, max_skew_ms: float = 50
+) -> float:
+    """Raises if claimed_now (e.g. the load generator's wall clock) disagrees
+    with Prometheus's own server clock by more than max_skew_ms. Every
+    windowed measurement in this file assumes both clocks agree on what time
+    it is -- an undetected skew silently shifts the window and produces a
+    wrong but clean-looking number (CLAUDE.md Rule 7). No such guard existed
+    before this -- found missing while building T4's broken-fixture cases.
+    Returns the measured skew in ms on success.
+    """
+    server_now = await client.server_time()
+    skew_ms = abs((claimed_now - server_now).total_seconds()) * 1000
+    if skew_ms > max_skew_ms:
+        raise PrometheusQueryError(
+            f"clock skew {skew_ms:.1f}ms between caller and Prometheus server exceeds "
+            f"{max_skew_ms}ms; refusing to trust a windowed measurement under this skew"
+        )
+    return skew_ms
+
 
 async def windowed_counter_delta(
     client: PrometheusClient,
