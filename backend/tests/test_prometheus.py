@@ -192,7 +192,6 @@ async def test_detect_sli_blind_spot_flags_zero_app_failed_with_real_drops():
     assert result.blind is True
     assert result.app_failed == 0.0
     assert result.edge_drops == 420.0
-    assert result.corrected_failed == 420.0
     assert "420" in result.reason
     assert "not a clean zero" in result.reason
 
@@ -218,7 +217,6 @@ async def test_detect_sli_blind_spot_not_blind_when_app_counter_agrees():
 
     assert result.blind is False
     assert result.reason is None
-    assert result.corrected_failed == 19.0
 
 
 @pytest.mark.asyncio
@@ -241,4 +239,3 @@ async def test_detect_sli_blind_spot_not_blind_when_both_zero():
         )
 
     assert result.blind is False
-    assert result.corrected_failed == 0.0

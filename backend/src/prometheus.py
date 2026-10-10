@@ -129,17 +129,23 @@ async def windowed_counter_delta(
 class BlindSpotResult:
     """app_failed alone can read a clean 0 while real cost is nonzero: a deny
     NetworkPolicy drops packets before they ever reach the app, so an
-    app-level request counter never sees them. corrected_failed folds in the
-    edge-level signal so that case isn't silently reported as zero cost."""
+    app-level request counter never sees them.
+
+    edge_drops is deliberately NOT added to app_failed to "correct" it.
+    cilium_drop_count_total (and the underlying Hubble flow events it's
+    derived from) counts dropped *packets*, not failed *requests* -- a
+    single blocked connection attempt can retry at the TCP level and log
+    several drop events for the one logical failure (confirmed via Hubble in
+    testing: ~1800 drop events from ~280 distinct connection attempts, a
+    ~6.5x inflation). Summing a packet count into a request count would be
+    its own unit-mismatch bug. edge_drops is reported as a presence/
+    corroboration signal only -- when blind, report SLI_BLIND and no number,
+    not a wrong number."""
 
     app_failed: float
     edge_drops: float
     blind: bool
     reason: str | None
-
-    @property
-    def corrected_failed(self) -> float:
-        return self.app_failed + self.edge_drops
 
 
 async def detect_sli_blind_spot(
@@ -159,8 +165,9 @@ async def detect_sli_blind_spot(
     query fits the action under test; app_failed_expr is expected to be ~0
     for network-layer actions (the app never sees them) and nonzero for
     app-visible ones (e.g. T1's fault-knob 500s), so neither side is right
-    for every action type -- corrected_failed sums both because they count
-    non-overlapping failure modes.
+    for every action type. When blind, there is no reliable Prometheus-based
+    request count for this window -- report the flag and reason, not a
+    number (see BlindSpotResult's note on why edge_drops isn't summed in).
     """
     app_failed = await windowed_counter_delta(
         client, app_failed_expr, window_start, window_end, scrape_interval_seconds=scrape_interval_seconds
