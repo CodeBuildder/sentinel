@@ -122,7 +122,21 @@ async def windowed_counter_delta(
             f"no counter sample at or before the window [{window_start.isoformat()}, "
             f"{window_end.isoformat()}]; cannot compute a delta"
         )
-    return after - before
+    delta = after - before
+    if delta < 0:
+        # A counter is monotonically non-decreasing by definition -- a negative
+        # delta always means something broke, never a real measurement. Found
+        # via a NetworkPolicy isolation test: blocking ingress to a pod also
+        # blocks Prometheus's own scrape of it (Cilium exempts kubelet probes,
+        # not Prometheus), so that pod's series goes stale and drops out of a
+        # sum() aggregation mid-window, making the aggregate appear to shrink.
+        raise PrometheusQueryError(
+            f"counter delta for {expr!r} over [{window_start.isoformat()}, "
+            f"{window_end.isoformat()}] is negative ({delta}); a target likely "
+            "went unscrapable mid-window and dropped out of the aggregation -- "
+            "refusing to report it as a measurement"
+        )
+    return delta
 
 
 @dataclass(frozen=True)

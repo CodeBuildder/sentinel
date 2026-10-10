@@ -171,6 +171,26 @@ async def test_windowed_counter_delta_raises_when_no_sample_in_padded_window():
 
 
 @pytest.mark.asyncio
+async def test_windowed_counter_delta_rejects_negative_delta():
+    # A counter can appear to go backwards in a sum() aggregation if one of
+    # the summed series' targets goes unscrapable mid-window and its last
+    # value drops out -- found via a NetworkPolicy isolation test where
+    # Prometheus's own scrape of the isolated pod failed too.
+    window_start = datetime(2026, 7, 20, 14, 0, 0, tzinfo=timezone.utc)
+    window_end = window_start + timedelta(seconds=30)
+    client = PrometheusClient(base_url="http://prom.test")
+
+    async def fake_query_instant(expr, at):
+        return 27777.0 if at == window_start else 27525.0
+
+    with patch.object(client, "query_instant", new=fake_query_instant):
+        with pytest.raises(PrometheusQueryError, match="negative"):
+            await windowed_counter_delta(
+                client, 'sum(http_requests_total{code="500"})', window_start, window_end, scrape_interval_seconds=5
+            )
+
+
+@pytest.mark.asyncio
 async def test_detect_sli_blind_spot_flags_zero_app_failed_with_real_drops():
     window_start = datetime(2026, 7, 20, 14, 0, 0, tzinfo=timezone.utc)
     window_end = window_start + timedelta(seconds=30)
