@@ -71,6 +71,49 @@ class PrometheusClient:
             raise PrometheusQueryError(f"expected a single series, got {len(result)}; narrow the selector")
         return [(datetime.fromtimestamp(float(ts), tz=timezone.utc), float(val)) for ts, val in result[0]["values"]]
 
+    async def query_instant(self, expr: str, at: datetime) -> float | None:
+        """Counter/gauge value at a single instant (Prometheus's own lookback,
+        i.e. the most recent sample at or before `at`), not a stepped series."""
+        params = {"query": expr, "time": at.timestamp()}
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.get(f"{self.base_url}/api/v1/query", params=params)
+        resp.raise_for_status()
+        payload = resp.json()
+        if payload.get("status") != "success":
+            raise PrometheusQueryError(payload.get("error", "unknown prometheus error"))
+        result = payload["data"]["result"]
+        if not result:
+            return None
+        if len(result) > 1:
+            raise PrometheusQueryError(f"expected a single series, got {len(result)}; narrow the selector")
+        return float(result[0]["value"][1])
+
+
+async def windowed_counter_delta(
+    client: PrometheusClient,
+    expr: str,
+    window_start: datetime,
+    window_end: datetime,
+    *,
+    scrape_interval_seconds: int,
+) -> float:
+    """Counter delta over [window_start, window_end] from two instant values,
+    not query_range steps. query_range's own step alignment can silently clip
+    traffic near either edge when a window boundary falls between two scrape
+    timestamps (the first/last returned sample is already inside the window,
+    not at its edge) -- this undercounts, worst on sparse series like failed
+    requests. Padding each side by one scrape interval guarantees a real
+    scrape brackets the true window on both sides instead."""
+    pad = timedelta(seconds=scrape_interval_seconds)
+    before = await client.query_instant(expr, window_start - pad)
+    after = await client.query_instant(expr, window_end + pad)
+    if before is None or after is None:
+        raise PrometheusQueryError(
+            f"no counter sample within one scrape interval of the window [{window_start.isoformat()}, "
+            f"{window_end.isoformat()}]; cannot compute a delta"
+        )
+    return after - before
+
 
 def _nearest(series: Series, target: datetime, tolerance: timedelta) -> float | None:
     best_value: float | None = None

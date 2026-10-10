@@ -3,7 +3,13 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from prometheus import PrometheusClient, PrometheusQueryError, sli_query, time_matched_baseline
+from prometheus import (
+    PrometheusClient,
+    PrometheusQueryError,
+    sli_query,
+    time_matched_baseline,
+    windowed_counter_delta,
+)
 
 
 def test_sli_query_known_name_fills_selector():
@@ -103,3 +109,59 @@ async def test_time_matched_baseline_raises_when_no_prior_week_has_data():
     with patch.object(client, "query_range", new=AsyncMock(side_effect=[observed, [], [], []])):
         with pytest.raises(PrometheusQueryError):
             await time_matched_baseline(client, "up", window_start, window_end, lookback_weeks=3)
+
+
+@pytest.mark.asyncio
+async def test_query_instant_returns_none_on_empty_result():
+    client = PrometheusClient(base_url="http://prom.test")
+    payload = {"status": "success", "data": {"result": []}}
+    fake_response = AsyncMock()
+    fake_response.raise_for_status = lambda: None
+    fake_response.json = lambda: payload
+    with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=fake_response)):
+        value = await client.query_instant("up", datetime.now(timezone.utc))
+    assert value is None
+
+
+@pytest.mark.asyncio
+async def test_query_instant_parses_single_value():
+    client = PrometheusClient(base_url="http://prom.test")
+    payload = {"status": "success", "data": {"result": [{"value": [1000, "42"]}]}}
+    fake_response = AsyncMock()
+    fake_response.raise_for_status = lambda: None
+    fake_response.json = lambda: payload
+    with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=fake_response)):
+        value = await client.query_instant("up", datetime.now(timezone.utc))
+    assert value == 42.0
+
+
+@pytest.mark.asyncio
+async def test_windowed_counter_delta_pads_each_edge_by_one_scrape_interval():
+    window_start = datetime(2026, 7, 20, 14, 0, 0, tzinfo=timezone.utc)
+    window_end = window_start + timedelta(seconds=30)
+    client = PrometheusClient(base_url="http://prom.test")
+    calls = []
+
+    async def fake_query_instant(expr, at):
+        calls.append(at)
+        return 100.0 if at < window_start else 136.0
+
+    with patch.object(client, "query_instant", new=fake_query_instant):
+        delta = await windowed_counter_delta(
+            client, "http_requests_total", window_start, window_end, scrape_interval_seconds=5
+        )
+
+    assert delta == 36.0
+    assert calls == [window_start - timedelta(seconds=5), window_end + timedelta(seconds=5)]
+
+
+@pytest.mark.asyncio
+async def test_windowed_counter_delta_raises_when_no_sample_in_padded_window():
+    window_start = datetime(2026, 7, 20, 14, 0, 0, tzinfo=timezone.utc)
+    window_end = window_start + timedelta(seconds=30)
+    client = PrometheusClient(base_url="http://prom.test")
+    with patch.object(client, "query_instant", new=AsyncMock(return_value=None)):
+        with pytest.raises(PrometheusQueryError):
+            await windowed_counter_delta(
+                client, "http_requests_total", window_start, window_end, scrape_interval_seconds=5
+            )
